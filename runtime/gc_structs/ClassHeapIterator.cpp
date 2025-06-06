@@ -37,7 +37,7 @@
  * @return NULL if there are no more classes in the segment
  */
 J9Class *
-GC_ClassHeapIterator::nextClass() 
+GC_ClassHeapIterator::nextClassInternal()
 {
 	J9Class *currentScanPtr;
 #if defined(J9VM_OPT_FRAGMENT_RAM_CLASSES)
@@ -60,6 +60,29 @@ GC_ClassHeapIterator::nextClass()
 	}
 #endif
 	return NULL;
+}
+
+/**
+ * @return call nextClassInternal() on RCP condition
+ * @return NULL if there are no more classes in the segment
+ */
+J9Class *
+GC_ClassHeapIterator::nextClass()
+{
+	J9Class *clazz;
+
+	clazz = nextClassInternal();
+#if defined(J9VM_OPT_SNAPSHOTS)
+	if (IS_RESTORE_RUN(_vm)) {
+		while((NULL != clazz)
+				&& (NULL == clazz->classObject)
+				&& J9_ARE_ALL_BITS_SET(clazz->classFlags, J9ClassIsFrozenFromSnapshot)) {
+			clazz = nextClassInternal();
+		}
+	}
+#endif /* defined(J9VM_OPT_SNAPSHOTS) */
+
+	return clazz;
 }
 
 

@@ -98,6 +98,7 @@
 #define J9ClassNeedToPruneMemberNames 0x1000000
 #define J9ClassArrayIsNullRestricted 0x2000000
 #define J9ClassIsLoadedFromSnapshot 0x4000000
+#define J9ClassIsFrozenFromSnapshot 0x8000000
 
 /* @ddr_namespace: map_to_type=J9FieldFlags */
 

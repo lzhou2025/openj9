@@ -41,17 +41,20 @@
 class GC_ClassHeapIterator
 {
 	J9Class *_scanPtr;
+	J9JavaVM *_vm;
 
 public:
 	GC_ClassHeapIterator(J9JavaVM *javaVM, J9MemorySegment *memorySegment) :
 #if defined(J9VM_OPT_FRAGMENT_RAM_CLASSES)
-		_scanPtr(*((J9Class **)memorySegment->heapBase))
+		_scanPtr(*((J9Class **)memorySegment->heapBase)),_vm(javaVM)
 #else
-		_scanPtr(memorySegment->heapBase)
+		_scanPtr(memorySegment->heapBase),_vm(javaVM)
 #endif
 	{};
 
 	J9Class *nextClass();
+private:
+	J9Class *nextClassInternal();
 };
 
 #endif /* CLASSHEAPITERATOR_HPP_ */
