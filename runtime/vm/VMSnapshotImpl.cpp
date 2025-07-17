@@ -617,6 +617,51 @@ VMSnapshotImpl::removeUnpersistedClassLoaders()
 	}
 }
 
+static void printClassModInfo(J9VMThread *vmThread, J9Class *clazz, const char *where)
+{
+	J9UTF8 *className = J9ROMCLASS_CLASSNAME(clazz->romClass);
+	j9object_t protectionDomain = NULL;
+	
+	printf("%s: %.*s, classFlags=%x, classObject=%p, classLoader=%p, clazz=%p, mod=%p, thread=%lx", 
+				where, J9UTF8_LENGTH(className), J9UTF8_DATA(className), clazz->classFlags, 
+				clazz->classObject, clazz->classLoader, clazz, clazz->module, pthread_self());
+	if (NULL != clazz->classObject) {
+		j9object_t moduleObject=J9VMJAVALANGCLASS_MODULE(vmThread, clazz->classObject);
+		printf(",moduleObject=%p, module=%p", moduleObject,clazz->module);
+		if (NULL != clazz->module) {
+			J9UTF8 *moduleName = clazz->module->moduleName;
+			if (NULL != moduleName) {
+				printf(",modName=%.*s", J9UTF8_LENGTH(moduleName), J9UTF8_DATA(moduleName) ); 
+			}
+		}
+	}
+	j9object_t heapClass = J9VM_J9CLASS_TO_HEAPCLASS(clazz);
+	if (NULL != heapClass) {
+		protectionDomain = J9VMJAVALANGCLASS_PROTECTIONDOMAIN(vmThread, heapClass);
+		printf(",protDomain=%p\n", protectionDomain);
+	} else {
+		printf("\n");
+	}
+	fflush(stdout);
+}
+static void printAllClass(J9JavaVM *vm, const char *where)
+{
+	pool_state classLoaderWalkState = {0};
+	J9ClassLoader *classloader = (J9ClassLoader *)pool_startDo(vm->classLoaderBlocks, &classLoaderWalkState);
+	printf("3loaders: sys=%p, app=%p, ext=%p\n", vm->systemClassLoader, vm->applicationClassLoader, vm->extensionClassLoader);
+	while (NULL != classloader) {
+		J9ClassWalkState walkState = {0};
+		J9Class *currentClass = allLiveClassesStartDo(&walkState, vm, classloader);
+
+		while (NULL != currentClass) {
+			printClassModInfo(currentVMThread(vm), currentClass, where);
+			currentClass = allLiveClassesNextDo(&walkState);
+		}
+		allLiveClassesEndDo(&walkState);
+		classloader = (J9ClassLoader *)pool_nextDo(&classLoaderWalkState);
+	}
+}
+
 void
 VMSnapshotImpl::fixupClasses()
 {
@@ -628,7 +673,6 @@ VMSnapshotImpl::fixupClasses()
 
 		while (NULL != currentClass) {
 			J9ROMClass *romClass = currentClass->romClass;
-
 			if (J9ROMCLASS_IS_ARRAY(romClass)) {
 				fixupArrayClass((J9ArrayClass *)currentClass);
 			} else {
@@ -640,7 +684,7 @@ VMSnapshotImpl::fixupClasses()
 			if (NULL == currentClass->lastITable) {
 				currentClass->lastITable = VMSnapshotImpl::getInvalidITable();
 			}
-
+			
 			currentClass = allLiveClassesNextDo(&walkState);
 		}
 		allLiveClassesEndDo(&walkState);
@@ -1002,6 +1046,7 @@ VMSnapshotImpl::writeSnapshot()
 {
 	removeUnpersistedClassLoaders();
 	/* TODO: Call GC API to snapshot heap. */
+	printAllClass(_vm,"writeSnapshot");
 	fixupClassLoaders();
 	fixupClasses();
 	fixupModules();

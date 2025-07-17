@@ -1024,6 +1024,33 @@ arbitratedLoadClass(J9VMThread* vmThread, U_8* className, UDATA classNameLength,
 }
 
 #if defined(J9VM_OPT_SNAPSHOTS)
+static void printClassModInfo(J9VMThread *vmThread, J9Class *clazz, const char *where)
+{
+	J9UTF8 *className = J9ROMCLASS_CLASSNAME(clazz->romClass);
+	j9object_t protectionDomain = NULL;
+	
+	printf("%s: %.*s, classFlags=%x, classObject=%p, classLoader=%p, clazz=%p, mod=%p, thread=%lx", 
+				where, J9UTF8_LENGTH(className), J9UTF8_DATA(className), clazz->classFlags, 
+				clazz->classObject, clazz->classLoader, clazz, clazz->module, pthread_self());
+	if (NULL != clazz->classObject) {
+		j9object_t moduleObject=J9VMJAVALANGCLASS_MODULE(vmThread, clazz->classObject);
+		printf(",moduleObject=%p, module=%p", moduleObject,clazz->module);
+		if (NULL != clazz->module) {
+			J9UTF8 *moduleName = clazz->module->moduleName;
+			if (NULL != moduleName) {
+				printf(",modName=%.*s", J9UTF8_LENGTH(moduleName), J9UTF8_DATA(moduleName) ); 
+			}
+		}
+	}
+	j9object_t heapClass = J9VM_J9CLASS_TO_HEAPCLASS(clazz);
+	if (NULL != heapClass) {
+		protectionDomain = J9VMJAVALANGCLASS_PROTECTIONDOMAIN(vmThread, heapClass);
+		printf(",protDomain=%p\n", protectionDomain);
+	} else {
+		printf("\n");
+	}
+	fflush(stdout);
+}
 /* TODO: Revisit this function. */
 BOOLEAN
 loadWarmClassFromSnapshot(J9VMThread *vmThread, J9ClassLoader *classLoader, J9Class *clazz)
@@ -1102,6 +1129,7 @@ loadWarmClassFromSnapshot(J9VMThread *vmThread, J9ClassLoader *classLoader, J9Cl
 	rc = TRUE;
 
 done:
+printClassModInfo(vmThread,clazz, "loadwarm");
 	return rc;
 }
 #endif /* defined(J9VM_OPT_SNAPSHOTS) */
