@@ -231,6 +231,7 @@ def test(JOB_NAME, UPSTREAM_JOB_NAME, UPSTREAM_JOB_NUMBER, NODE, OPENJ9_REPO, OP
     stage ("${JOB_NAME}") {
         def testParams = []
         testParams.addAll([string(name: 'LABEL', value: NODE),
+            string(name: 'CLOUD_PROVIDER', value: 'EBC'),
             string(name: 'LABEL_ADDITION', value: extraTestLabels),
             string(name: 'ADOPTOPENJDK_REPO', value: ADOPTOPENJDK_REPO),
             string(name: 'ADOPTOPENJDK_BRANCH', value: ADOPTOPENJDK_BRANCH),
