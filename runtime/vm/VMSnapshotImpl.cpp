@@ -166,12 +166,32 @@ VMSnapshotImpl::createInstance(J9PortLibrary *portLibrary, const char *vmSnapsho
 
 	return jvmInstance;
 }
+#include <stdlib.h>
 
 bool
 VMSnapshotImpl::setupRestoreRun()
 {
+   // Get CLOCK_REALTIME
+	 struct timespec ts, te;
+	if (getenv("RCP_PERF_TEST") != NULL) {
+		// Get CLOCK_REALTIME
+		if (0 != clock_gettime(CLOCK_REALTIME, &ts)) {
+        	perror("Error getting CLOCK_REALTIME");
+			return false;
+    	}
+	}
 	if (!readSnapshotFromFile()) {
 		return false;
+	}
+	if (getenv("RCP_PERF_TEST") != NULL) {
+		// Get CLOCK_REALTIME
+		if (0 != clock_gettime(CLOCK_REALTIME, &te)) {
+    		perror("Error getting CLOCK_REALTIME");
+			return false;
+		}
+		double t1= ts.tv_sec + ts.tv_nsec/1000000000.0;
+		double t2= te.tv_sec + te.tv_nsec/1000000000.0;
+		printf("Realtime execution of readSnapshotFromFile(): %lf seconds\n", t2-t1);
 	}
 
 	if (!initializeMonitor()) {
@@ -566,7 +586,8 @@ VMSnapshotImpl::fixupClassLoaders()
 #endif /* J9VM_NEEDS_JNI_REDIRECTION */
 		currentClassLoader->gcRememberedSet = 0;
 		currentClassLoader->jitMetaDataList = NULL;
-
+		currentClassLoader->loadedClassCount = 0;
+		currentClassLoader->loadedClassCountFromRcpCache =0;
 		fixupClassPathEntries(currentClassLoader);
 		currentClassLoader = (J9ClassLoader *)pool_nextDo(&classLoaderWalkState);
 	}
@@ -615,10 +636,13 @@ VMSnapshotImpl::removeUnpersistedClassLoaders()
 		NULL != classLoader;
 		classLoader = (J9ClassLoader *)pool_nextDo(&classLoaderWalkState)
 	) {
+		//printf("classLoader %p: loaded class %lu total, %lu from RCP Cache\n", classLoader, classLoader->loadedClassCount, classLoader->loadedClassCountFromRcpCache);
 		if (!isImmortalClassLoader(classLoader)) {
 			freeClassLoader(classLoader, _vm, vmThread, FALSE);
 		}
 	}
+	// printf("Immortal ClassLoaders: %p, %p, %p\n", _vm->systemClassLoader, _vm->extensionClassLoader, _vm->applicationClassLoader);
+	// printf("JVM: loaded class %lu total, %lu from RCP Cache\n", _vm->loadedClassCount, _vm->loadedClassCountFromRcpCache);
 }
 
 void
@@ -1021,6 +1045,26 @@ VMSnapshotImpl::writeSnapshot()
 	}
 }
 
+void
+VMSnapshotImpl::dumpClassCount()
+{
+	pool_state classLoaderWalkState = {0};
+
+	for (J9ClassLoader *classLoader = (J9ClassLoader *)pool_startDo(_vm->classLoaderBlocks, &classLoaderWalkState);
+		NULL != classLoader;
+		classLoader = (J9ClassLoader *)pool_nextDo(&classLoaderWalkState)
+	) {
+		printf("classLoader %p: classes %lu by loader, %lu by RCP Cache", classLoader, classLoader->loadedClassCount, classLoader->loadedClassCountFromRcpCache);
+		if (isImmortalClassLoader(classLoader)) {
+			printf(", immortal classLoader\n");
+		} else {
+			printf("\n");
+		}
+	}
+	printf("Immortal ClassLoaders: %p, %p, %p\n", _vm->systemClassLoader, _vm->extensionClassLoader, _vm->applicationClassLoader);
+	printf("JVM: classes %lu by loaders, %lu by RCP Cache\n", _vm->loadedClassCount, _vm->loadedClassCountFromRcpCache);
+}
+
 VMSnapshotImplPortLibrary *
 setupVMSnapshotImplPortLibrary(J9PortLibrary *portLibrary)
 {
@@ -1186,13 +1230,22 @@ teardownVMSnapshotImpl(J9JavaVM *javaVM)
 {
 	VMSnapshotImpl *vmSnapshotImpl = (VMSnapshotImpl *)javaVM->vmSnapshotImplPortLibrary->vmSnapshotImpl;
 	Assert_VM_notNull(vmSnapshotImpl);
-
+	
 	if (IS_SNAPSHOT_RUN(javaVM)) {
 		vmSnapshotImpl->writeSnapshot();
 	} else {
 		vmSnapshotImpl->saveMemorySegments();
 	}
 	vmSnapshotImpl->freeJ9JavaVMStructures();
+}
+
+extern "C" void
+dumpPerfCounters(J9JavaVM *javaVM)
+{
+	VMSnapshotImpl *vmSnapshotImpl = (VMSnapshotImpl *)javaVM->vmSnapshotImplPortLibrary->vmSnapshotImpl;
+	Assert_VM_notNull(vmSnapshotImpl);
+
+	vmSnapshotImpl->dumpClassCount();
 }
 
 extern "C" void

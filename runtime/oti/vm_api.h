@@ -5553,6 +5553,8 @@ shutdownVMSnapshotImpl(VMSnapshotImplPortLibrary *vmSnapshotImplPortLibrary);
  */
 void
 teardownVMSnapshotImpl(J9JavaVM *javaVM);
+void
+dumpPerfCounters(J9JavaVM *javaVM);
 
 /**
  * Stores the JavaVM initial methods in the snapshot header during snapshot runs.

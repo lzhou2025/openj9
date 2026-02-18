@@ -136,6 +136,7 @@ public:
 
 	J9ITable *getInvalidITable() { return _invalidITable; }
 	void initBaseClasses();
+	void dumpClassCount();
 };
 
 #endif /* defined(J9VM_OPT_SNAPSHOTS) */

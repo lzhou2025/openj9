@@ -3898,9 +3898,12 @@ typedef struct J9ClassLoader {
 	 * Protected by J9JavaVM.classTableMutex.
 	 */
 	void *outlivingLoaders;
-#if defined(J9VM_OPT_JFR)
+#if defined(J9VM_OPT_JFR) || defined(J9VM_OPT_SNAPSHOTS)
 	UDATA loadedClassCount;
-#endif /* defined(J9VM_OPT_JFR) */
+#endif /* defined(J9VM_OPT_JFR) || defined(J9VM_OPT_SNAPSHOTS) */
+#if defined(J9VM_OPT_SNAPSHOTS)
+	UDATA loadedClassCountFromRcpCache;
+#endif /* defined(J9VM_OPT_SNAPSHOTS) */
 } J9ClassLoader;
 
 #define J9CLASSLOADER_CONTAINS_JXES 0x1
@@ -6692,9 +6695,12 @@ typedef struct J9JavaVM {
 	const char *vmSnapshotFilePath;
 	omrthread_monitor_t rcpCacheMutex;
 #endif /* defined(J9VM_OPT_SNAPSHOTS) */
-#if defined(J9VM_OPT_JFR)
+#if defined(J9VM_OPT_JFR) || defined(J9VM_OPT_SNAPSHOTS)
 	UDATA loadedClassCount;
-#endif /* defined(J9VM_OPT_JFR) */
+#endif /* defined(J9VM_OPT_JFR) || defined(J9VM_OPT_SNAPSHOTS) */
+#if defined(J9VM_OPT_SNAPSHOTS)
+	UDATA loadedClassCountFromRcpCache;
+#endif /* defined(J9VM_OPT_SNAPSHOTS) */
 #if JAVA_SPEC_VERSION >= 24
 	J9VMContinuation *blockedContinuations;
 	omrthread_monitor_t blockedVirtualThreadsMutex;

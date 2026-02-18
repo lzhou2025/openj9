@@ -1021,7 +1021,10 @@ loadWarmClassFromSnapshotInternal(J9VMThread *vmThread, J9Class *clazz)
 		const char *className = (const char *)J9UTF8_DATA(J9ROMCLASS_CLASSNAME(clazz->romClass));
 
 		clazz->classFlags |= J9ClassIsLoadedFromSnapshot;
-
+		
+		vm->loadedClassCountFromRcpCache++;
+		clazz->classLoader->loadedClassCountFromRcpCache++;
+		
 		/* Load superclasses and interfaces first. */
 		if (NULL != superClazz) {
 			if (!loadWarmClassFromSnapshot(vmThread, superClazz)) {

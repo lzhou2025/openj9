@@ -180,9 +180,12 @@ allocateClassLoader(J9JavaVM *javaVM)
 	if (NULL != classLoader) {
 		UDATA classRelationshipsHashTableResult = -1;
 		BOOLEAN cacheMaps = J9_ARE_ANY_BITS_SET(javaVM->extendedRuntimeFlags3, J9_EXTENDED_RUNTIME3_CACHE_MAPS);
-#if defined(J9VM_OPT_JFR)
+#if defined(J9VM_OPT_JFR) || defined(J9VM_OPT_SNAPSHOTS)
 		classLoader->loadedClassCount = 0;
-#endif /* defined(J9VM_OPT_JFR) */
+#endif /* defined(J9VM_OPT_JFR) || defined(J9VM_OPT_SNAPSHOTS) */
+#if defined(J9VM_OPT_SNAPSHOTS)
+		classLoader->loadedClassCountFromRcpCache = 0;
+#endif /* defined(J9VM_OPT_SNAPSHOTS) */
 		/* memset not required as the classLoaderBlocks pool returns zero'd memory */
 		if (cacheMaps) {
 			omrthread_monitor_init_with_name(&classLoader->mapCacheMutex, 0, "map cache mutex");

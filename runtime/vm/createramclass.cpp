@@ -2252,12 +2252,12 @@ internalCreateRAMClassDone(
 			javaVM->anonClassCount += 1;
 		}
 
-#if defined(J9VM_OPT_JFR)
+#if defined(J9VM_OPT_JFR) || defined(J9VM_OPT_SNAPSHOTS)
 		if (classLoader != javaVM->anonClassLoader) {
 			classLoader->loadedClassCount += 1;
 		}
 		javaVM->loadedClassCount += 1;
-#endif /* defined(J9VM_OPT_JFR) */
+#endif /* defined(J9VM_OPT_JFR) || defined(J9VM_OPT_SNAPSHOTS) */
 
 		/* Create all the method IDs if class load is hooked */
 		if (J9_EVENT_IS_HOOKED(javaVM->hookInterface, J9HOOK_VM_CLASS_LOAD)) {

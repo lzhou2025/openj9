@@ -572,6 +572,9 @@ exitJavaVM(J9VMThread * vmThread, IDATA rc)
 #endif
 
 #if defined(J9VM_OPT_SNAPSHOTS)
+		if (NULL != getenv("RCP_PERF_TEST")) {
+			dumpPerfCounters(vm);
+		}
 		if (IS_SNAPSHOT_RUN(vm)) {
 			teardownVMSnapshotImpl(vm);
 		}
@@ -697,6 +700,9 @@ freeJavaVM(J9JavaVM * vm)
 	}
 
 #if defined(J9VM_OPT_SNAPSHOTS)
+	if (NULL != getenv("RCP_PERF_TEST")) {
+		dumpPerfCounters(vm);
+	}
 	if (IS_SNAPSHOTTING_ENABLED(vm)) {
 		teardownVMSnapshotImpl(vm);
 	}
@@ -1198,10 +1204,14 @@ initializeJavaVM(void * osMainThread, J9JavaVM ** vmPtr, J9CreateJavaVMParams *c
 	vm->internalVMLabels = (J9InternalVMLabels*)-1001;
 	vm->cInterpreter = J9_BUILDER_SYMBOL(cInterpreter);
 	vm->threadDllHandle = createParams->threadDllHandle;
-#if defined(J9VM_OPT_JFR)
+#if defined(J9VM_OPT_JFR) || defined(J9VM_OPT_SNAPSHOTS)
 	vm->loadedClassCount = 0;
+#if defined(J9VM_OPT_SNAPSHOTS)
+	vm->loadedClassCountFromRcpCache = 0;
+#else /* defined(J9VM_OPT_SNAPSHOTS) */
 	vm->jfrState.blobFileDescriptor = -1;
-#endif /* defined(J9VM_OPT_JFR) */
+#endif /* defined(J9VM_OPT_SNAPSHOTS) */
+#endif /* defined(J9VM_OPT_JFR) || defined(J9VM_OPT_SNAPSHOTS) */
 	vm->defaultPageSize = j9vmem_supported_page_sizes()[0];
 #if JAVA_SPEC_VERSION >= 19
 	/* tid 1 will be use by main thread, first usable tid starts at 2 */

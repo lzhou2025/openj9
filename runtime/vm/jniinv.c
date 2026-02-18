@@ -115,6 +115,7 @@ typedef struct {
 	UDATA threadType;
 	void * osThread;
 } J9InternalAttachCurrentThreadArgs;
+#include <stdlib.h>
 
 jint JNICALL J9_CreateJavaVM(JavaVM ** p_vm, void ** p_env, J9CreateJavaVMParams *createParams)
 {
@@ -146,13 +147,26 @@ jint JNICALL J9_CreateJavaVM(JavaVM ** p_vm, void ** p_env, J9CreateJavaVMParams
 	   platform (e.g. Unix) */
 	globalMonitor = omrthread_global_monitor();
 #endif
-
+	struct timespec ts, te;
+	if (getenv("RCP_PERF_TEST") != NULL) {
+    	// Get CLOCK_REALTIME
+    	if (0 != clock_gettime(CLOCK_REALTIME, &ts)) {
+        	perror("Error getting CLOCK_REALTIME");
+    	}
+	}
 	/* Create the JavaVM structure */
 	if ((result = initializeJavaVM(osThread, (J9JavaVM**)p_vm, createParams)) != JNI_OK)
 	{
 		goto error0;
 	}
-
+	if (getenv("RCP_PERF_TEST") != NULL) {
+    	if (0 != clock_gettime(CLOCK_REALTIME, &te)) {
+    	    perror("Error getting CLOCK_REALTIME");
+   		}
+		time_t milisecs = (te.tv_sec-ts.tv_sec)*1000 + (te.tv_nsec - ts.tv_nsec)/1000000;
+		double secs = milisecs/1000.0;
+		printf("Realtime execution of initializeJavaVM(): %lf seconds\n", secs);
+	}
 	vm = *(J9JavaVM**)p_vm;
 
 	/* This has been set during initializeJavaVM */
@@ -1313,12 +1327,12 @@ launchAttachApi(J9VMThread *currentThread) {
 	if (NULL == meth) {
 		return -1;
 	}
-
+	
 	(*env)->CallStaticVoidMethod(env, clazz, meth);
 	if ((*env)->ExceptionCheck(env)) {
 		return -1;
 	}
-
+	
 	return 0;
 }
 
