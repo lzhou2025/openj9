@@ -1,5 +1,3 @@
-
-
 /*******************************************************************************
  * Copyright IBM Corp. and others 1991
  *
@@ -425,13 +423,10 @@ MM_ParallelSweepSchemeVLHGC::sweepMarkMapHead(
 	UDATA * &heapSlotFreeHead,
 	UDATA &heapSlotFreeCount )
 {
-	UDATA markMapHeadValue;
-	UDATA markMapFreeBitIndexHead;
-
-	if(markMapFreeHead > markMapChunkBase) {
-		markMapHeadValue = *(markMapFreeHead - 1);
-		markMapFreeBitIndexHead = J9MODRON_HEAP_SLOTS_PER_MARK_BIT * MM_Bits::trailingZeroes(markMapHeadValue);
-		if(markMapFreeBitIndexHead) {
+	if (markMapFreeHead > markMapChunkBase) {
+		UDATA markMapHeadValue = *(markMapFreeHead - 1);
+		UDATA markMapFreeBitIndexHead = J9MODRON_HEAP_SLOTS_PER_MARK_BIT * MM_Bits::leadingZeros(markMapHeadValue);
+		if (0 != markMapFreeBitIndexHead) {
 			heapSlotFreeHead -= markMapFreeBitIndexHead;
 			heapSlotFreeCount += markMapFreeBitIndexHead;
 		}
@@ -444,14 +439,10 @@ MM_ParallelSweepSchemeVLHGC::sweepMarkMapTail(
 	UDATA *markMapChunkTop,
 	UDATA &heapSlotFreeCount )
 {
-	UDATA markMapTailValue;
-	UDATA markMapFreeBitIndexTail;
-
-	if(markMapCurrent < markMapChunkTop) {
-		markMapTailValue = *markMapCurrent;
-		markMapFreeBitIndexTail = J9MODRON_HEAP_SLOTS_PER_MARK_BIT * MM_Bits::leadingZeroes(markMapTailValue);
-
-		if(markMapFreeBitIndexTail) {
+	if (markMapCurrent < markMapChunkTop) {
+		UDATA markMapTailValue = *markMapCurrent;
+		UDATA markMapFreeBitIndexTail = J9MODRON_HEAP_SLOTS_PER_MARK_BIT * MM_Bits::trailingZeros(markMapTailValue);
+		if (0 != markMapFreeBitIndexTail) {
 			heapSlotFreeCount += markMapFreeBitIndexTail;
 		}
 	}

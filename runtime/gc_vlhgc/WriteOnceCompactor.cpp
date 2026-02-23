@@ -2763,8 +2763,8 @@ MM_WriteOnceCompactor::removeTailMarksInPage(MM_EnvironmentVLHGC *env, MM_MarkMa
 		UDATA markMapWord = markMap->getSlot(slotIndex);
 		UDATA newWord = 0;
 		while (0 != markMapWord) {
-			UDATA leadingZeroes = MM_Bits::leadingZeroes(markMapWord);
-			UDATA bit = ((UDATA)1 << leadingZeroes);
+			UDATA trailingZeros = MM_Bits::trailingZeros(markMapWord);
+			UDATA bit = ((UDATA)1 << trailingZeros);
 			markMapWord &= ~bit;
 			if (isHead) {
 				newWord |= bit;
