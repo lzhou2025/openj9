@@ -1049,12 +1049,29 @@ void
 VMSnapshotImpl::dumpClassCount()
 {
 	pool_state classLoaderWalkState = {0};
-
+	J9VMThread *vmThread = currentVMThread(_vm);
+	
 	for (J9ClassLoader *classLoader = (J9ClassLoader *)pool_startDo(_vm->classLoaderBlocks, &classLoaderWalkState);
 		NULL != classLoader;
 		classLoader = (J9ClassLoader *)pool_nextDo(&classLoaderWalkState)
 	) {
-		printf("classLoader %p: classes %lu by loader, %lu by RCP Cache", classLoader, classLoader->loadedClassCount, classLoader->loadedClassCountFromRcpCache);
+		char nameBuf[512];
+		if (NULL != classLoader->classLoaderObject) {
+      		//j9object_t jclassLoaderName = J9VMJAVALANGCLASSLOADER_CLASSLOADERNAME(vmThread, classLoader->classLoaderObject);
+			J9Class * clazz = J9OBJECT_CLAZZ(vmThread, classLoader->classLoaderObject);
+      		if (NULL != clazz) {
+				J9UTF8 *utf8Name = J9ROMCLASS_CLASSNAME(clazz->romClass);
+				if (NULL != utf8Name) {
+		  			snprintf(nameBuf, sizeof(nameBuf), "%.*s", J9UTF8_LENGTH(utf8Name), J9UTF8_DATA(utf8Name));
+				} else {
+		  			snprintf(nameBuf, sizeof(nameBuf), "UnknownClassLoader");
+				}
+	  		} else {
+				snprintf(nameBuf, sizeof(nameBuf), "UnknownClassLoader");
+	  		}
+		}
+	
+		printf("classLoader %s: classes %lu by loader, %lu by RCP Cache", nameBuf, classLoader->loadedClassCount, classLoader->loadedClassCountFromRcpCache);
 		if (isImmortalClassLoader(classLoader)) {
 			printf(", immortal classLoader\n");
 		} else {
