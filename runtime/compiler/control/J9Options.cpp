@@ -46,6 +46,7 @@
 #include "control/RecompilationInfo.hpp"
 #include "env/CompilerEnv.hpp"
 #include "env/IO.hpp"
+#include "env/TRMemory.hpp"
 #include "env/VMJ9.h"
 #include "env/VerboseLog.hpp"
 #include "env/jittypes.h"
@@ -235,7 +236,9 @@ int32_t J9::Options::_TLHPrefetchBoundaryLineCount = 0;
 int32_t J9::Options::_TLHPrefetchTLHEndLineCount = 0;
 
 uint32_t J9::Options::_minDiskSpaceForDisclaimMB = 1024; // 1 GB
-int32_t J9::Options::_minTimeBetweenMemoryDisclaims = 500; // ms
+int32_t J9::Options::_minTimeBetweenMemoryDisclaims = 5000; // ms (for non-SCC memory areas)
+int32_t J9::Options::_minTimeBetweenSCCDisclaims = 500; // ms (for Shared Class Cache)
+uint32_t J9::Options::_maxDeviceLatencyForDisclaimUs = 1500; // us (disable disclaiming to slow devices)
 int32_t J9::Options::_mallocTrimPeriod = 0; // seconds; 0 means disabled
 
 int32_t J9::Options::_numFirstTimeCompilationsToExitIdleMode = 25; // Use a large number to disable the feature
@@ -1147,6 +1150,9 @@ TR::OptionTable OMR::Options::_feOptions[] = {
     { "maxCheckcastProfiledClassTests=",
      "R<nnn>\tnumber inlined profiled classes for profiledclass test in checkcast/instanceof", TR::Options::setStaticNumeric, (intptr_t)&TR::Options::_maxCheckcastProfiledClassTests, 0, "F%d",
      NOT_IN_SUBSET },
+    { "maxDeviceLatencyForDisclaimUs=",
+     "M<nnn>\tMaximum latency (us) for devices when considering whether to enable disclaiming", TR::Options::setStaticNumeric, (intptr_t)&TR::Options::_maxDeviceLatencyForDisclaimUs, 0, "F%d",
+     NOT_IN_SUBSET },
     { "maxOnsiteCacheSlotForInstanceOf=", "R<nnn>\tnumber of onsite cache slots for instanceOf",
      TR::Options::setStaticNumeric, (intptr_t)&TR::Options::_maxOnsiteCacheSlotForInstanceOf, 0, "F%d",
      NOT_IN_SUBSET },
@@ -1159,6 +1165,8 @@ TR::OptionTable OMR::Options::_feOptions[] = {
     { "minTimeBetweenMemoryDisclaims=", "M<nnn>\tMinimum time (ms) between two consecutive memory disclaim operations",
      TR::Options::setStaticNumeric, (intptr_t)&TR::Options::_minTimeBetweenMemoryDisclaims, 500, "F%d",
      NOT_IN_SUBSET },
+    { "minTimeBetweenSCCDisclaims=", "M<nnn>\tMinimum time (ms) between two consecutive SCC disclaim operations",
+     TR::Options::setStaticNumeric, (intptr_t)&TR::Options::_minTimeBetweenSCCDisclaims, 0, "F%d", NOT_IN_SUBSET },
     { "noregmap", 0, RESET_JITCONFIG_RUNTIME_FLAG(J9JIT_CG_REGISTER_MAPS) },
     { "numCodeCachesOnStartup=", "R<nnn>\tnumber of code caches to create at startup", TR::Options::setStaticNumeric,
      (intptr_t)&TR::Options::_numCodeCachesToCreateAtStartup, 0, "F%d", NOT_IN_SUBSET },
@@ -2546,12 +2554,6 @@ bool J9::Options::fePreProcess(void *base)
     PORT_ACCESS_FROM_JAVAVM(vm);
     OMRPORT_ACCESS_FROM_J9PORT(PORTLIB);
 
-#if defined(DEBUG) || defined(PROD_WITH_ASSUMES)
-    bool forceSuffixLogs = false;
-#else
-    bool forceSuffixLogs = true;
-#endif
-
     int32_t xxLateSCCDisclaimTime
         = J9::Options::getExternalOptionIndex(J9::ExternalOptions::XXLateSCCDisclaimTimeOption);
     if (xxLateSCCDisclaimTime >= 0) {
@@ -2596,19 +2598,11 @@ bool J9::Options::fePreProcess(void *base)
      * receive the 0C7 signal causing the product process to get killed
      *
      * Therefore, the recommendation is to disable traps on z/OS by default.
-     *
-     * On Windows the OS signal handlers may require a large amount of stack space, which causes
-     * stack overflow and corruption on the Java stack. As a temporary workaround until a better
-     * solution is found, traps are disabled by default on Windows as well.
-     *
      * Users can choose to enable traps using the "enableTraps" option.
      */
-#if defined(J9ZOS390) || (defined(OMR_OS_WINDOWS) && defined(TR_TARGET_64BIT))
+#if defined(J9ZOS390)
     self()->setOption(TR_DisableTraps);
 #endif
-
-    if (forceSuffixLogs)
-        self()->setOption(TR_EnablePIDExtension);
 
     if (jitConfig->runtimeFlags & J9JIT_CG_REGISTER_MAPS)
         self()->setOption(TR_RegisterMaps);
@@ -2915,6 +2909,25 @@ bool J9::Options::fePostProcessJIT(void *base)
     return true;
 }
 
+// Analyze disk characteristics to determine if disclaiming should be enabled
+// and what the initial base interval should be.
+// Returns true if disclaiming should be enabled based on disk characteristics.
+// Potentially sets recommendedIntervalMs to the recommended initial interval in milliseconds.
+static bool analyzeDiskCharacteristicsForDisclaiming(OMRBlockDeviceStats &diskStats, int32_t &recommendedIntervalMs)
+{
+    // Sanity checks on counters; if anything looks wrong don't enable disclaiming.
+    if (diskStats.rdIos == 0 && diskStats.wrIos == 0)
+        return false;
+    if (diskStats.rdIos > 0 && diskStats.rdTicksMs == 0)
+        return false;
+    if (diskStats.wrIos > 0 && diskStats.wrTicksMs == 0)
+        return false;
+
+    double latencyMs = static_cast<double>(diskStats.rdTicksMs + diskStats.wrTicksMs)
+        / static_cast<double>(diskStats.rdIos + diskStats.wrIos);
+    return latencyMs * 1000.0 <= TR::Options::_maxDeviceLatencyForDisclaimUs;
+}
+
 // This function returns false if the running enviroment is suitable for
 // memory disclaim (Linux kernel >= 5.4, default page size <= 4KB, enough
 // free space on the file-backing media).
@@ -2999,6 +3012,42 @@ bool J9::Options::disableMemoryDisclaimIfNeeded(J9JITConfig *jitConfig)
             compInfo->setCanDisclaimOnFile(true);
         }
     }
+
+    // Analyze disk characteristics to determine if disclaiming should be enabled
+    // and what the initial interval should be based on disk performance.
+    // Make a decision for memory areas that can be disclaimed to swap or temporary backing files.
+    //
+    if (compInfo->canDisclaimOnSwap() || compInfo->canDisclaimOnFile()) {
+        char *device = compInfo->canDisclaimOnSwap() ? omrsysinfo_get_block_device_for_swap()
+                                                     : omrsysinfo_get_block_device_for_path(disclaimDir);
+        OMRBlockDeviceStats deviceStats;
+        int32_t recommendedIntervalMs = J9::Options::_minTimeBetweenMemoryDisclaims;
+        bool diskSuitableForDisclaiming = device != NULL && omrsysinfo_get_block_device_stats(device, &deviceStats) == 0
+            && analyzeDiskCharacteristicsForDisclaiming(deviceStats, recommendedIntervalMs);
+
+        if (TR::Options::getVerboseOption(TR_VerbosePerformance)) {
+            if (!diskSuitableForDisclaiming) {
+                TR_VerboseLog::writeLineLocked(TR_Vlog_PERF,
+                    "WARNING: Disclaim for private memory disabled based on disk characteristics analysis");
+            } else if (J9::Options::_minTimeBetweenMemoryDisclaims != recommendedIntervalMs) {
+                TR_VerboseLog::writeLineLocked(TR_Vlog_PERF,
+                    "Disclaim interval for private memory adjusted from %d to %d ms based on disk characteristics",
+                    J9::Options::_minTimeBetweenMemoryDisclaims, recommendedIntervalMs);
+            }
+        }
+
+        if (!diskSuitableForDisclaiming) {
+            compInfo->setCanDisclaimOnSwap(false);
+            compInfo->setCanDisclaimOnFile(false);
+        } else {
+            J9::Options::_minTimeBetweenMemoryDisclaims = recommendedIntervalMs;
+        }
+
+        if (device) {
+            j9mem_free_memory(device);
+        }
+    }
+
     if (!compInfo->canDisclaimOnSwap() && !compInfo->canDisclaimOnFile()) {
         TR::Options::getCmdLineOptions()->setOption(TR_DisableDataCacheDisclaiming);
         TR::Options::getCmdLineOptions()->setOption(TR_DisableIProfilerDataDisclaiming);
@@ -3017,6 +3066,9 @@ bool J9::Options::disableMemoryDisclaimIfNeeded(J9JITConfig *jitConfig)
         }
     }
     // SCC disclaiming does not need swap or additional files
+    // For the SCC the current decision is made based on kernel version and page size.
+    // Later we'll make a decision based on disk performance, similar to what was done for the private memory areas
+    // above.
     if (shouldDisableMemoryDisclaim) {
         TR::Options::getCmdLineOptions()->setOption(TR_EnableSharedCacheDisclaiming, false);
     }
@@ -3028,6 +3080,62 @@ bool J9::Options::disableMemoryDisclaimIfNeeded(J9JITConfig *jitConfig)
     TR::Options::getCmdLineOptions()->setOption(TR_EnableSharedCacheDisclaiming, false);
     return true;
 #endif
+}
+
+bool J9::Options::disableSCCDisclaimIfNeeded(J9JITConfig *jitConfig)
+{
+    // Disable SCC disclaiming unless the following code runs successfully and decides otherwise.
+    bool shouldDisableMemoryDisclaim = true;
+#if defined(LINUX) && defined(J9VM_OPT_SHARED_CLASSES)
+    // Make a decision for the SCC, which has a permanent backing file that may be on a different device from other
+    // memory areas.
+    //
+    if (TR::Options::getCmdLineOptions()->getOption(TR_EnableSharedCacheDisclaiming)) {
+        J9JavaVM *javaVM = jitConfig->javaVM;
+        PORT_ACCESS_FROM_JAVAVM(javaVM); // for j9vmem_supported_page_sizes
+        OMRPORT_ACCESS_FROM_J9PORT(javaVM->portLibrary); // for omrsysinfo_os_kernel_info
+
+        if (javaVM->sharedClassConfig != NULL && javaVM->sharedClassConfig->getJavacoreData != NULL) {
+            J9SharedClassJavacoreDataDescriptor javacoreData;
+            memset(&javacoreData, 0, sizeof(J9SharedClassJavacoreDataDescriptor));
+
+            if (javaVM->sharedClassConfig->getJavacoreData(javaVM, &javacoreData)) {
+                // cacheDir contains the full path of the base layer SCC file, despite the name.
+                char *sccDevice = omrsysinfo_get_block_device_for_path(javacoreData.cacheDir);
+                OMRBlockDeviceStats deviceStats;
+                int32_t recommendedIntervalMs = J9::Options::_minTimeBetweenSCCDisclaims;
+                bool diskSuitableForDisclaiming = sccDevice != NULL
+                    && omrsysinfo_get_block_device_stats(sccDevice, &deviceStats) == 0
+                    && analyzeDiskCharacteristicsForDisclaiming(deviceStats, recommendedIntervalMs);
+
+                if (TR::Options::getVerboseOption(TR_VerbosePerformance)) {
+                    if (!diskSuitableForDisclaiming) {
+                        TR_VerboseLog::writeLineLocked(TR_Vlog_PERF,
+                            "WARNING: Disclaim for SCC disabled based on disk characteristics analysis");
+                    } else if (J9::Options::_minTimeBetweenSCCDisclaims != recommendedIntervalMs) {
+                        TR_VerboseLog::writeLineLocked(TR_Vlog_PERF,
+                            "Disclaim interval for SCC adjusted from %d to %d ms based on disk characteristics",
+                            J9::Options::_minTimeBetweenSCCDisclaims, recommendedIntervalMs);
+                    }
+                }
+
+                if (diskSuitableForDisclaiming) {
+                    shouldDisableMemoryDisclaim = false;
+                    J9::Options::_minTimeBetweenSCCDisclaims = recommendedIntervalMs;
+                }
+
+                if (sccDevice) {
+                    j9mem_free_memory(sccDevice);
+                }
+            }
+        }
+
+        if (shouldDisableMemoryDisclaim) {
+            TR::Options::getCmdLineOptions()->setOption(TR_EnableSharedCacheDisclaiming, false);
+        }
+    }
+#endif // if defined(LINUX) && defined(J9VM_OPT_SHARED_CLASSES)
+    return shouldDisableMemoryDisclaim;
 }
 
 bool J9::Options::fePostProcessAOT(void *base)
@@ -3371,6 +3479,10 @@ bool J9::Options::feLatePostProcess(void *base, TR::OptionSet *optionSet)
             }
         }
     }
+
+    if (javaVM->sharedClassConfig) {
+        TR::Options::disableSCCDisclaimIfNeeded(jitConfig);
+    }
 #endif
 
     // The use of -XX:[+/-]IProfileDuringStartupPhase sets if we always/never IProfile
@@ -3471,17 +3583,25 @@ bool J9::Options::feLatePostProcess(void *base, TR::OptionSet *optionSet)
     return true;
 }
 
-OMR::Logger *J9::Options::createLoggerForLogFile(TR::FILE *file)
+OMR::Logger *J9::Options::createLoggerForLogFileName(const char *logFileName, const char *fileMode)
 {
     OMR::Logger *logger = NULL;
 
     if (self()->getOption(TR_ForceCStdIOForLoggers)) {
-        logger = OMR::CStdIOStreamLogger::create(file->_stream);
+        logger = OMR::CStdIOStreamLogger::create(trPersistentMemory, logFileName, fileMode);
     } else {
         // An OMR::TRIOStreamLogger is the default logger
         //
-        logger = OMR::TRIOStreamLogger::create(file);
+        logger = OMR::TRIOStreamLogger::create(trPersistentMemory, logFileName, fileMode);
     }
+
+#if defined(J9VM_OPT_JITSERVER)
+    // JitServer requires Loggers to be rewindable and readable in order to pack the
+    // underlying log file for transmission
+    //
+    TR_ASSERT_FATAL(!logger || logger->supportsRewinding(), "Logger for a log file must be rewindable");
+    TR_ASSERT_FATAL(!logger || logger->supportsRead(), "Logger for a log file must be readable");
+#endif
 
     return logger;
 }
@@ -3489,7 +3609,6 @@ OMR::Logger *J9::Options::createLoggerForLogFile(TR::FILE *file)
 void J9::Options::printPID() { ((TR_J9VMBase *)_fe)->printPID(); }
 
 #if defined(J9VM_OPT_JITSERVER)
-void getTRPID(char *buf, size_t size);
 
 static void appendRegex(TR::SimpleRegex *&regexPtr, uint8_t *&curPos)
 {
@@ -3535,34 +3654,27 @@ static uint8_t *appendContent(char *&charPtr, uint8_t *curPos, size_t length)
 std::string J9::Options::packOptions(const TR::Options *origOptions)
 {
     size_t logFileNameLength = 0;
-    size_t suffixLogsFormatLength = 0;
     size_t blockShufflingSequenceLength = 0;
     size_t induceOSRLength = 0;
 
     char buf[JITSERVER_LOG_FILENAME_MAX_SIZE];
-    char *origLogFileName = NULL;
-    if (origOptions->_logFileName) {
-        origLogFileName = origOptions->_logFileName;
-        char pidBuf[20];
-        memset(pidBuf, 0, sizeof(pidBuf));
-        getTRPID(pidBuf, sizeof(pidBuf));
-        logFileNameLength = strlen(origOptions->_logFileName) + strlen(".") + strlen(pidBuf) + strlen(".server") + 1;
-        // If logFileNameLength is greater than JITSERVER_LOG_FILENAME_MAX_SIZE, PID might not be appended to the log
-        // file name and the log file name could be truncated as well.
-        if (logFileNameLength > JITSERVER_LOG_FILENAME_MAX_SIZE)
-            logFileNameLength = JITSERVER_LOG_FILENAME_MAX_SIZE;
-        snprintf(buf, logFileNameLength, "%s.%s.server", origOptions->_logFileName, pidBuf);
+    if (origOptions->getLogFileNameBase()) {
+        char *fn = TR::Options::buildLogFileName(buf, JITSERVER_LOG_FILENAME_MAX_SIZE,
+            origOptions->getLogFileNameBase(), -1, ".%pid.server", true);
+
+        TR_ASSERT_FATAL(fn, "Error building JitServer log filename");
+
+        logFileNameLength = strlen(buf) + 1; // +1 for NUL terminator
     }
-    if (origOptions->_suffixLogsFormat)
-        suffixLogsFormatLength = strlen(origOptions->_suffixLogsFormat) + 1;
+
     if (origOptions->_blockShufflingSequence)
         blockShufflingSequenceLength = strlen(origOptions->_blockShufflingSequence) + 1;
     if (origOptions->_induceOSR)
         induceOSRLength = strlen(origOptions->_induceOSR) + 1;
 
     // sizeof(bool) is reserved to pack J9JIT_RUNTIME_RESOLVE
-    size_t totalSize = sizeof(TR::Options) + logFileNameLength + suffixLogsFormatLength + blockShufflingSequenceLength
-        + induceOSRLength + sizeof(bool);
+    size_t totalSize
+        = sizeof(TR::Options) + logFileNameLength + blockShufflingSequenceLength + induceOSRLength + sizeof(bool);
 
     addRegexStringSize(origOptions->_disabledOptTransformations, totalSize);
     addRegexStringSize(origOptions->_disabledInlineSites, totalSize);
@@ -3592,8 +3704,8 @@ std::string J9::Options::packOptions(const TR::Options *origOptions)
     TR::Options *options = (TR::Options *)optionsStr.data();
     memcpy(options, origOptions, sizeof(TR::Options));
 
-    if (origOptions->_logFileName)
-        options->_logFileName = buf;
+    if (origOptions->getLogFileNameBase())
+        options->setLogFileNameBase(buf);
 
     uint8_t *curPos = ((uint8_t *)options) + sizeof(TR::Options);
 
@@ -3601,7 +3713,6 @@ std::string J9::Options::packOptions(const TR::Options *origOptions)
     options->_postRestoreOptionSets = NULL;
     options->_startOptions = NULL;
     options->_envOptions = NULL;
-    options->_logFile = NULL;
     options->_logger = NULL;
     options->_optFileName = NULL;
     options->_customStrategy = NULL;
@@ -3631,14 +3742,13 @@ std::string J9::Options::packOptions(const TR::Options *origOptions)
     appendRegex(options->_disabledIdiomPatterns, curPos);
     appendRegex(options->_dontFoldStaticFinalFields, curPos);
     options->_osVersionString = NULL;
-    options->_logListForOtherCompThreads = NULL;
+    options->_loggerListForOtherCompThreads = NULL;
     options->_objectFileName = NULL;
 
     // Append the data pointed by a pointer to the content and patch the pointer
     // as a self-referring-pointer, or a relative pointer, which is
     // the offset of the data with respect to the pointer.
-    curPos = appendContent(options->_logFileName, curPos, logFileNameLength);
-    curPos = appendContent(options->_suffixLogsFormat, curPos, suffixLogsFormatLength);
+    curPos = appendContent(options->_logFileNameBase, curPos, logFileNameLength);
     curPos = appendContent(options->_blockShufflingSequence, curPos, blockShufflingSequenceLength);
     curPos = appendContent(options->_induceOSR, curPos, induceOSRLength);
 
@@ -3661,11 +3771,9 @@ TR::Options *J9::Options::unpackOptions(char *clientOptions, size_t clientOption
 
     // Convert relative pointers to absolute pointers
     // pointer = address of field + offset
-    if (options->_logFileName)
-        options->_logFileName = (char *)((uint8_t *)&(options->_logFileName) + (ptrdiff_t)options->_logFileName);
-    if (options->_suffixLogsFormat)
-        options->_suffixLogsFormat
-            = (char *)((uint8_t *)&(options->_suffixLogsFormat) + (ptrdiff_t)options->_suffixLogsFormat);
+    if (options->getLogFileNameBase())
+        options->setLogFileNameBase(
+            (char *)((uint8_t *)&(options->_logFileNameBase) + (ptrdiff_t)options->_logFileNameBase));
     if (options->_blockShufflingSequence)
         options->_blockShufflingSequence
             = (char *)((uint8_t *)&(options->_blockShufflingSequence) + (ptrdiff_t)options->_blockShufflingSequence);
@@ -3706,17 +3814,18 @@ TR::Options *J9::Options::unpackOptions(char *clientOptions, size_t clientOption
 }
 
 // Pack the log file generated at the server to be sent to the client
-std::string J9::Options::packLogFile(TR::FILE *fp)
+std::string J9::Options::packLogFile(OMR::Logger *log)
 {
-    if (fp == NULL)
+    if (log == NULL)
         return "";
+
     const size_t BUFFER_SIZE = 4096; // 4KB
     char buf[BUFFER_SIZE + 1];
     std::string logFileStr("");
     int readSize = 0;
-    ::rewind(fp->_stream);
+    log->rewind();
     do {
-        readSize = ::fread(buf, 1, BUFFER_SIZE, fp->_stream);
+        readSize = log->read(buf, BUFFER_SIZE);
         buf[readSize] = '\0';
         logFileStr.append(buf);
     } while (readSize == BUFFER_SIZE);
@@ -3728,12 +3837,12 @@ std::string J9::Options::packLogFile(TR::FILE *fp)
 // Create a log file at the client based on the log file string sent from the server
 int J9::Options::writeLogFileFromServer(const std::string &logFileContent)
 {
-    if (logFileContent.empty() || !_logFileName)
+    if (logFileContent.empty() || !getLogFileNameBase())
         return 0;
 
     char buf[JITSERVER_LOG_FILENAME_MAX_SIZE];
     _fe->acquireLogMonitor();
-    snprintf(buf, sizeof(buf), "%s.%d.REMOTE", _logFileName, ++_compilationSequenceNumber);
+    snprintf(buf, sizeof(buf), "%s.%d.REMOTE", getLogFileNameBase(), ++_compilationSequenceNumber);
     int sequenceNumber = _compilationSequenceNumber;
     _fe->releaseLogMonitor();
 
@@ -3746,10 +3855,13 @@ int J9::Options::writeLogFileFromServer(const std::string &logFileContent)
         }
         return 0; // may overflow the buffer
     }
-    char tmp[JITSERVER_LOG_FILENAME_MAX_SIZE];
-    char *filename = _fe->getFormattedName(tmp, JITSERVER_LOG_FILENAME_MAX_SIZE, buf, _suffixLogsFormat, true);
 
-    TR::FILE *logFile = trfopen(filename, "wb", false);
+    char tmp[JITSERVER_LOG_FILENAME_MAX_SIZE];
+    char *fn = TR::Options::buildLogFileName(tmp, JITSERVER_LOG_FILENAME_MAX_SIZE, buf, -1,
+        TR::Options::getLogFileNameSuffix(), true);
+    TR_ASSERT_FATAL(fn, "Error building JitServer log filename");
+
+    TR::FILE *logFile = trfopen(tmp, "wb", false);
     ::fputs(logFileContent.c_str(), logFile->_stream);
     trfflush(logFile);
     trfclose(logFile);
@@ -3759,32 +3871,35 @@ int J9::Options::writeLogFileFromServer(const std::string &logFileContent)
 
 TR_Debug *createDebugObject(TR::Compilation *);
 
-// JITServer: Create a log file for each client compilation request
-// Side effect: set _logFile, _logger
+// JITServer: Create a Logger for each client compilation request
+// Side effect: set _logger
 // At the client: Triggered when a remote compilation is followed by a local compilation.
 //                suffixNumber is the compilationSequenceNumber used for the remote compilation.
 // At the server: suffixNumber is set as 0.
-void J9::Options::setLogFileForClientOptions(int suffixNumber)
+void J9::Options::setLoggerForClientOptions(int suffixNumber)
 {
-    if (_logFileName) {
+    if (getLogFileNameBase()) {
         _fe->acquireLogMonitor();
+
+        OMR::Logger *logger = NULL;
         if (suffixNumber) {
-            self()->setOption(TR_EnablePIDExtension, true);
-            self()->openLogFileCreateLogger(suffixNumber);
+            logger = self()->openLogFileCreateLogger(suffixNumber);
         } else {
             _compilationSequenceNumber++;
-            self()->setOption(TR_EnablePIDExtension, false);
-            self()->openLogFileCreateLogger(_compilationSequenceNumber);
+            logger = self()->openLogFileCreateLogger(_compilationSequenceNumber, false);
         }
 
-        if (_logFile) {
-            J9JITConfig *jitConfig = (J9JITConfig *)_feBase;
-            if (!jitConfig->tracingHook) {
-                jitConfig->tracingHook = (void *)(TR_CreateDebug_t)createDebugObject;
-                suppressLogFileBecauseDebugObjectNotCreated(false);
-                _hasLogFile = true;
-            }
+        TR_ASSERT_FATAL(logger, "A Logger was not created for client options");
+
+        setLogger(logger);
+
+        J9JITConfig *jitConfig = (J9JITConfig *)_feBase;
+        if (!jitConfig->tracingHook) {
+            jitConfig->tracingHook = (void *)(TR_CreateDebug_t)createDebugObject;
+            suppressLogFileBecauseDebugObjectNotCreated(false);
+            _hasLogFile = true;
         }
+
         _fe->releaseLogMonitor();
     } else {
         // Must install a default Logger if a log file is not provided
@@ -3793,11 +3908,10 @@ void J9::Options::setLogFileForClientOptions(int suffixNumber)
     }
 }
 
-void J9::Options::closeLogFileForClientOptions()
+void J9::Options::closeLoggerForClientOptions()
 {
-    if (_logFile) {
-        TR::Options::closeLogFile(_fe, _logFile, _logger);
-        _logFile = NULL;
+    if (_logger) {
+        TR::Options::closeLogger(_logger);
         _logger = NULL;
     }
 }
@@ -3846,3 +3960,11 @@ J9::Options::FSDInitStatus J9::Options::resetFSD(J9JavaVM *vm, J9VMThread *vmThr
     return fsdStatusJIT;
 }
 #endif /* defined(J9VM_OPT_CRIU_SUPPORT) */
+
+void J9::Options::initialize() { self()->OMR::OptionsConnector::initialize(); }
+
+#if !defined(DEBUG) && !defined(PROD_WITH_ASSUMES)
+char *J9::Options::_logFileNameSuffix = ".%Y%m%d.%H%M%S.%pid";
+#else
+char *J9::Options::_logFileNameSuffix = "";
+#endif

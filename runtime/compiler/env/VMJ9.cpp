@@ -179,19 +179,14 @@ extern "C" bool _isPSWInProblemState(); /* 390 asm stub */
 
 TR::FILE *fileOpen(TR::Options *options, J9JITConfig *jitConfig, char *name, char *permission, bool b1)
 {
-    PORT_ACCESS_FROM_ENV(jitConfig->javaVM);
-    char tmp[1025];
-    char *formattedTmp = NULL;
-    if (!options->getOption(TR_EnablePIDExtension)) {
-        formattedTmp = TR_J9VMBase::getJ9FormattedName(jitConfig, PORTLIB, tmp, sizeof(tmp), name, NULL, false);
-    } else {
-        formattedTmp = TR_J9VMBase::getJ9FormattedName(jitConfig, PORTLIB, tmp, sizeof(tmp), name,
-            options->getSuffixLogsFormat(), true);
-    }
-    if (NULL != formattedTmp) {
-        return j9jit_fopen(formattedTmp, permission, b1);
-    }
-    return NULL;
+    const int32_t bufSize = 1025;
+    char buf[bufSize];
+    char *fn = TR::Options::buildLogFileName(buf, bufSize, name, -1, TR::Options::getLogFileNameSuffix(),
+        !options->getOption(TR_DontApplyLogFileNameSuffix));
+
+    TR_ASSERT_FATAL(fn, "Error building log filename");
+
+    return j9jit_fopen(fn, permission, b1);
 }
 
 // Returns -1 if given vmThread is not a compilation thread
@@ -849,59 +844,6 @@ uintptr_t TR_J9VMBase::getProcessID()
     return result;
 }
 
-// static method
-char *TR_J9VMBase::getJ9FormattedName(J9JITConfig *jitConfig, J9PortLibrary *portLibrary, char *buf, size_t bufLength,
-    char *name, char *format, bool suffix)
-{
-    PORT_ACCESS_FROM_ENV(jitConfig->javaVM);
-    J9VMThread *vmThread = jitConfig->javaVM->internalVMFunctions->currentVMThread(jitConfig->javaVM);
-    I_64 curTime = j9time_current_time_millis();
-    J9StringTokens *tokens = j9str_create_tokens(curTime);
-    if (tokens == NULL) {
-        return NULL;
-    }
-
-    char tmp[1025];
-    size_t nameLength = strlen(name);
-    uintptr_t substLength = j9str_subst_tokens(tmp, sizeof(tmp), name, tokens);
-
-    if (substLength >= std::min(sizeof(tmp), bufLength)) {
-        j9str_free_tokens(tokens);
-        return NULL; // not enough room for the name or the token expansion
-    }
-
-    if (strcmp(tmp, name) != 0) // only append if there isn't a format specifier
-    {
-        memcpy(buf, tmp, substLength + 1); // +1 to get the null terminator
-    } else {
-        memcpy(buf, name, nameLength);
-        char *suffixBuf = &buf[nameLength];
-        if (format)
-            j9str_subst_tokens(suffixBuf, bufLength - nameLength, format, tokens);
-        else if (suffix) {
-            // We have to break the string up to prevent CMVC keyword expansion
-            j9str_subst_tokens(suffixBuf, bufLength - nameLength,
-                ".%Y"
-                "%m"
-                "%d."
-                "%H"
-                "%M"
-                "%S.%pid",
-                tokens);
-        } else {
-            buf = name;
-        }
-    }
-
-    j9str_free_tokens(tokens);
-    return buf;
-}
-
-char *TR_J9VMBase::getFormattedName(char *buf, int32_t bufLength, char *name, char *format, bool suffix)
-{
-    return getJ9FormattedName(_jitConfig, _portLibrary, buf, bufLength, name, format, suffix);
-}
-
 void TR_J9VMBase::invalidateCompilationRequestsForUnloadedMethods(TR_OpaqueClassBlock *clazz, bool hotCodeReplacement)
 {
     // Only called from jitHookClassUnload so we don't need to acquire VM access
@@ -1140,13 +1082,12 @@ TR_OpaqueClassBlock *TR_J9VMBase::getObjectClassAt(uintptr_t objectAddress)
 TR_OpaqueClassBlock *TR_J9VMBase::getObjectClassFromKnownObjectIndex(TR::Compilation *comp,
     TR::KnownObjectTable::Index idx)
 {
-    TR::VMAccessCriticalSection getObjectClassFromKnownObjectIndex(comp);
-    TR_OpaqueClassBlock *clazz = getObjectClass(comp->getKnownObjectTable()->getPointer(idx));
+    // Get and cache the desired information
+    TR::KnownObjectTable::ObjectInfo objInfo = getObjClassInfoFromKnotIndex(comp, idx);
+    return objInfo._isFixedJavaLangClass ? objInfo._jlClass : objInfo._clazz;
 
-    J9::ConstProvenanceGraph *cpg = comp->constProvenanceGraph();
-    cpg->addEdge(cpg->knownObject(idx), clazz);
-
-    return clazz;
+    // Note: We don't need to add an edge to comp->constProvenanceGraph() because
+    // this is done in getObjClassInfoFromKnotIndexNoCaching()
 }
 
 TR_OpaqueClassBlock *TR_J9VMBase::getObjectClassFromKnownObjectIndex(TR::Compilation *comp,
@@ -1159,10 +1100,9 @@ TR_OpaqueClassBlock *TR_J9VMBase::getObjectClassFromKnownObjectIndex(TR::Compila
     TR::KnownObjectTable::ObjectInfo objInfo = getObjClassInfoFromKnotIndex(comp, idx);
     *isJavaLangClass = objInfo._isFixedJavaLangClass;
 
-    // Don't nedd to add an edge to comp->constProvenanceGraph() because this
-    // is done in getObjClassInfoFromKnotIndex() frontend query
-    // J9::ConstProvenanceGraph *cpg = comp->constProvenanceGraph();
-    // cpg->addEdge(cpg->knownObject(idx), clazz);
+    // Note: We don't need to add an edge to comp->constProvenanceGraph() because
+    // this is done in getObjClassInfoFromKnotIndexNoCaching()
+
     return objInfo._clazz;
 }
 
@@ -1172,6 +1112,8 @@ uintptr_t TR_J9VMBase::getStaticReferenceFieldAtAddress(uintptr_t fieldAddress)
     return (uintptr_t)J9STATIC_OBJECT_LOAD(vmThread(), NULL, fieldAddress);
 }
 
+// This function assumes that we have a knot entry that has only the _jniReference
+// field populated and we want to retrieve the rest of the fields.
 TR::KnownObjectTable::ObjectInfo TR_J9VMBase::getObjClassInfoFromKnotIndexNoCaching(TR::Compilation *comp,
     TR::KnownObjectTable::Index knotIndex)
 {
@@ -1195,6 +1137,8 @@ TR::KnownObjectTable::ObjectInfo TR_J9VMBase::getObjClassInfoFromKnotIndexNoCach
         // the java/lang/Class object represents.
         retrievedObjInfo._clazz = getClassFromJavaLangClass(objectReference);
     }
+    J9::ConstProvenanceGraph *cpg = comp->constProvenanceGraph();
+    cpg->addEdge(cpg->knownObject(knotIndex), retrievedObjInfo._clazz);
     return retrievedObjInfo;
 }
 
@@ -1231,9 +1175,8 @@ TR::KnownObjectTable::ObjectInfo TR_J9VMBase::getObjClassInfoFromKnotIndex(TR::C
             answerObjInfo = existingObjInfo;
         }
     }
-
-    J9::ConstProvenanceGraph *cpg = comp->constProvenanceGraph();
-    cpg->addEdge(cpg->knownObject(knotIndex), answerObjInfo._clazz);
+    // Note: We don't need to add an edge to comp->constProvenanceGraph() because
+    // this is done in getObjClassInfoFromKnotIndexNoCaching()
     return answerObjInfo;
 }
 
@@ -3169,6 +3112,10 @@ TR::TreeTop *TR_J9VMBase::lowerMultiANewArray(TR::Compilation *comp, TR::Node *r
     } else
         TR_ASSERT(false, "Number of dims in multianewarray is not constant");
 
+#if defined(TR_HOST_ARM64)
+    bool secondDimConstNonZero = (root->getChild(2)->getOpCode().isLoadConst() && (root->getChild(2)->getInt() != 0));
+#endif /* defined(TR_HOST_ARM64) */
+
     // Allocate a temp to hold the array of dimensions
     //
     TR::AutomaticSymbol *temp = TR::AutomaticSymbol::create(comp->trHeapMemory(), TR::Int32, sizeof(int32_t) * dims);
@@ -3201,7 +3148,11 @@ TR::TreeTop *TR_J9VMBase::lowerMultiANewArray(TR::Compilation *comp, TR::Node *r
     root->setNumChildren(3);
 
     static bool recreateRoot = feGetEnv("TR_LowerMultiANewArrayRecreateRoot") ? true : false;
-    if (!comp->target().is64Bit() || recreateRoot || dims > 2)
+    if (!comp->target().is64Bit() || recreateRoot || dims > 2
+#if defined(TR_HOST_ARM64)
+        || secondDimConstNonZero
+#endif /* defined(TR_HOST_ARM64) */
+    )
         TR::Node::recreate(root, TR::acall);
 
     return treeTop;
