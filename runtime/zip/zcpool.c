@@ -129,7 +129,7 @@ BOOLEAN zipCachePool_addRef(J9ZipCachePool *zcp, J9ZipCache *zipCache)
  * @return NULL if no match is found.
  */
 
-J9ZipCache * zipCachePool_findCache(J9ZipCachePool *zcp, char const *zipFileName, IDATA zipFileNameLength, IDATA zipFileSize, I_64 zipTimeStamp)
+J9ZipCache * zipCachePool_findCache(J9ZipCachePool *zcp, char const *zipFileName, IDATA zipFileNameLength, I_64 zipFileSize, I_64 zipTimeStamp)
 {
 	J9ZipCache *zipCache;
 	J9ZipCachePoolEntry *entry;

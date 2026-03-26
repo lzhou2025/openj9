@@ -2528,7 +2528,7 @@ processAllInZIP(char* zipFilename, U_32 flags)
 	U_8* dataBuffer = NULL;
 	U_32 dataBufferSize = 1024;
 	I_32 result;
-	IDATA nextEntry;
+	U_64 nextEntry;
 
 	PORT_ACCESS_FROM_PORT(portLib);
 

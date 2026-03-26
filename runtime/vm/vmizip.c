@@ -46,7 +46,7 @@ vmizip_getZipEntryData(VMInterface * vmi, VMIZipFile * zipFile, VMIZipEntry * en
 }
 
 I_32 
-vmizip_getZipEntryRawData(VMInterface * vmi, VMIZipFile * zipFile, VMIZipEntry * entry, U_8 * buffer, U_32 bufferSize, U_32 offset) 
+vmizip_getZipEntryRawData(VMInterface * vmi, VMIZipFile * zipFile, VMIZipEntry * entry, U_8 * buffer, U_32 bufferSize, U_64 offset) 
 {
 	J9VMInterface* j9vmi = (J9VMInterface*)vmi;
 	PORT_ACCESS_FROM_JAVAVM(j9vmi->javaVM);
@@ -54,7 +54,7 @@ vmizip_getZipEntryRawData(VMInterface * vmi, VMIZipFile * zipFile, VMIZipEntry *
 }
 
 I_32
-vmizip_getZipEntryFromOffset(VMInterface * vmi, VMIZipFile * zipFile, VMIZipEntry * entry, IDATA offset, I_32 flags) 
+vmizip_getZipEntryFromOffset(VMInterface * vmi, VMIZipFile * zipFile, VMIZipEntry * entry, U_64 offset, I_32 flags) 
 {
 	J9VMInterface* j9vmi = (J9VMInterface*)vmi;
 	PORT_ACCESS_FROM_JAVAVM(j9vmi->javaVM);
@@ -62,7 +62,7 @@ vmizip_getZipEntryFromOffset(VMInterface * vmi, VMIZipFile * zipFile, VMIZipEntr
 }
 
 void
-vmizip_resetZipFile(VMInterface * vmi, VMIZipFile * zipFile, IDATA * nextEntryPointer)
+vmizip_resetZipFile(VMInterface * vmi, VMIZipFile * zipFile, U_64 * nextEntryPointer)
 {
 	J9VMInterface* j9vmi = (J9VMInterface*)vmi;
 	PORT_ACCESS_FROM_JAVAVM(j9vmi->javaVM);
@@ -70,7 +70,7 @@ vmizip_resetZipFile(VMInterface * vmi, VMIZipFile * zipFile, IDATA * nextEntryPo
 }
 
 I_32 
-vmizip_getNextZipEntry(VMInterface * vmi, VMIZipFile * zipFile, VMIZipEntry * zipEntry, IDATA * nextEntryPointer, I_32 flags)
+vmizip_getNextZipEntry(VMInterface * vmi, VMIZipFile * zipFile, VMIZipEntry * zipEntry, U_64 * nextEntryPointer, I_32 flags)
 {
 	J9VMInterface* j9vmi = (J9VMInterface*)vmi;
 	PORT_ACCESS_FROM_JAVAVM(j9vmi->javaVM);
@@ -310,7 +310,7 @@ vmizipCache_enumNew(void * zipCache, char *directoryName, void **handle)
 }
 	
 IDATA 
-vmizipCache_enumElement(void *handle, char *nameBuf, UDATA nameBufSize, UDATA * offset)
+vmizipCache_enumElement(void *handle, char *nameBuf, UDATA nameBufSize, U_64 * offset)
 {
 	return zipCache_enumElement(handle, nameBuf, nameBufSize, offset);
 }
