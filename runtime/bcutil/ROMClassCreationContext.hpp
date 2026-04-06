@@ -39,7 +39,7 @@
 class ROMClassCreationContext
 {
 public:
-	ROMClassCreationContext(J9PortLibrary *portLibrary, U_8 *classFileBytes, UDATA classFileSize, UDATA bctFlags, UDATA bcuFlags, J9ROMClass *romClass, UDATA availableOSStackSpace) :
+	ROMClassCreationContext(J9PortLibrary *portLibrary, U_8 *classFileBytes, UDATA classFileSize, UDATA bctFlags, UDATA bcuFlags, J9ROMClass *romClass) :
 		_portLibrary(portLibrary),
 		_javaVM(NULL),
 		_classFileBytes(classFileBytes),
@@ -74,12 +74,11 @@ public:
 		_existingRomMethod(NULL),
 		_reusingIntermediateClassData(false),
 		_creatingIntermediateROMClass(false),
-		_patchMap(NULL),
-		_availableOSStackSpace(availableOSStackSpace)
+		_patchMap(NULL)
 	{
 	}
 
-	ROMClassCreationContext(J9PortLibrary *portLibrary, U_8 *classFileBytes, UDATA classFileSize, UDATA bctFlags, UDATA bcuFlags, UDATA findClassFlags, AllocationStrategy *allocationStrategy, UDATA availableOSStackSpace) :
+	ROMClassCreationContext(J9PortLibrary *portLibrary, U_8 *classFileBytes, UDATA classFileSize, UDATA bctFlags, UDATA bcuFlags, UDATA findClassFlags, AllocationStrategy *allocationStrategy) :
 		_portLibrary(portLibrary),
 		_javaVM(NULL),
 		_classFileBytes(classFileBytes),
@@ -114,15 +113,14 @@ public:
 		_existingRomMethod(NULL),
 		_reusingIntermediateClassData(false),
 		_creatingIntermediateROMClass(false),
-		_patchMap(NULL),
-		_availableOSStackSpace(availableOSStackSpace)
+		_patchMap(NULL)
 	{
 	}
 
 	ROMClassCreationContext(
 			J9PortLibrary *portLibrary, J9JavaVM *javaVM, U_8 *classFileBytes, UDATA classFileSize, UDATA bctFlags, UDATA bcuFlags, UDATA findClassFlags, AllocationStrategy *allocationStrategy,
-			U_8 *className, UDATA classNameLength, U_8 *hostPackageName, UDATA hostPackageLength, U_8 *intermediateClassData, U_32 intermediateClassDataLength, J9ROMClass *romClass, J9Class *clazz,
-			J9ClassLoader *classLoader, bool classFileBytesReplaced, bool creatingIntermediateROMClass, J9TranslationLocalBuffer *localBuffer, UDATA availableOSStackSpace) :
+			U_8 *className, UDATA classNameLength, U_8 *hostPackageName, UDATA hostPackageLength, U_8 *intermediateClassData, U_32 intermediateClassDataLength, J9ROMClass *romClass, J9Class *clazz, 
+			J9ClassLoader *classLoader, bool classFileBytesReplaced, bool creatingIntermediateROMClass, J9TranslationLocalBuffer *localBuffer) :
 		_portLibrary(portLibrary),
 		_javaVM(javaVM),
 		_classFileBytes(classFileBytes),
@@ -161,8 +159,7 @@ public:
 		_existingRomMethod(NULL),
 		_reusingIntermediateClassData(false),
 		_creatingIntermediateROMClass(creatingIntermediateROMClass),
-		_patchMap(NULL),
-		_availableOSStackSpace(availableOSStackSpace)
+		_patchMap(NULL)
 	{
 		if ((NULL != _javaVM) && (NULL != _javaVM->dynamicLoadBuffers)) {
 			/* localBuffer should not be NULL */
@@ -244,7 +241,6 @@ public:
 	bool isHiddenClassOptStrongSet() const { return J9_ARE_ALL_BITS_SET(_findClassFlags, J9_FINDCLASS_FLAG_CLASS_OPTION_STRONG); }
 	bool isDoNotShareClassFlagSet() const {return J9_ARE_ALL_BITS_SET(_findClassFlags, J9_FINDCLASS_FLAG_DO_NOT_SHARE);}
 	bool isLambdaClass() const { return J9_ARE_ALL_BITS_SET(_findClassFlags, J9_FINDCLASS_FLAG_LAMBDA); }
-	UDATA getAvailableOSStackSpace() const { return _availableOSStackSpace; }
 #if defined(J9VM_OPT_OPENJDK_METHODHANDLE)
 	bool isLambdaFormClass() const { return J9_ARE_ALL_BITS_SET(_findClassFlags, J9_FINDCLASS_FLAG_LAMBDAFORM); }
 #endif /* defined(J9VM_OPT_OPENJDK_METHODHANDLE) */
@@ -252,7 +248,7 @@ public:
 	bool isClassUnmodifiable() const {
 		bool unmodifiable = false;
 		if (NULL != _javaVM) {
-			if ((J2SE_VERSION(_javaVM) >= J2SE_V11)
+			if ((J2SE_VERSION(_javaVM) >= J2SE_V11) 
 				&& (isClassAnon() || isClassHidden())
 			) {
 				unmodifiable = true;
@@ -346,7 +342,7 @@ public:
 		}
 		return isEnabled;
 	}
-
+	
 	bool isHiddenClassSharingEnabled() const {
 		/*
 		 * In java 15 and up, hidden class is introduced to replace unsafe anonymous class, so use existing CML options
@@ -830,7 +826,6 @@ private:
 	bool _reusingIntermediateClassData;
 	bool _creatingIntermediateROMClass;
 	J9ClassPatchMap *_patchMap;
-	UDATA _availableOSStackSpace;
 
 	J9ROMMethod * romMethodFromOffset(IDATA offset);
 };

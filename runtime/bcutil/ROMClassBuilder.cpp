@@ -141,11 +141,10 @@ j9bcutil_compareRomClass(
 		struct J9BytecodeVerificationData * verifyBuffers,
 		UDATA bctFlags,
 		UDATA bcuFlags,
-		J9ROMClass *romClass,
-		UDATA availableOSStackSpace)
+		J9ROMClass *romClass)
 {
 	ROMClassBuilder romClassBuilder(NULL, portLib, 0, NULL == verifyBuffers ? NULL : verifyBuffers->excludeAttribute, NULL == verifyBuffers ? NULL : j9bcv_verifyClassStructure);
-	ROMClassCreationContext context(portLib, classFileBytes, classFileSize, bctFlags, bcuFlags, romClass, availableOSStackSpace);
+	ROMClassCreationContext context(portLib, classFileBytes, classFileSize, bctFlags, bcuFlags, romClass);
 	return (IDATA)romClassBuilder.buildROMClass(&context);
 }
 #endif
@@ -165,13 +164,12 @@ j9bcutil_buildRomClassIntoBuffer(
 		UDATA lineNumberBufferSize,
 		U_8 * varInfoBuffer,
 		UDATA varInfoBufferSize,
-		U_8 ** classFileBufferPtr,
-		UDATA availableOSStackSpace
+		U_8 ** classFileBufferPtr
 )
 {
 	SuppliedBufferAllocationStrategy suppliedBufferAllocationStrategy(romSegment, romSegmentSize, lineNumberBuffer, lineNumberBufferSize, varInfoBuffer, varInfoBufferSize);
 	ROMClassBuilder romClassBuilder(NULL, portLib, 0, NULL == verifyBuffers ? NULL : verifyBuffers->excludeAttribute, NULL == verifyBuffers ? NULL : j9bcv_verifyClassStructure);
-	ROMClassCreationContext context(portLib, classFileBytes, classFileSize, bctFlags, bcuFlags, findClassFlags, &suppliedBufferAllocationStrategy, availableOSStackSpace);
+	ROMClassCreationContext context(portLib, classFileBytes, classFileSize, bctFlags, bcuFlags, findClassFlags, &suppliedBufferAllocationStrategy);
 	IDATA result = IDATA(romClassBuilder.buildROMClass(&context));
 	if (NULL != classFileBufferPtr) {
 		*classFileBufferPtr = romClassBuilder.releaseClassFileBuffer();
@@ -180,7 +178,7 @@ j9bcutil_buildRomClassIntoBuffer(
 }
 
 extern "C" IDATA
-j9bcutil_buildRomClass(J9LoadROMClassData *loadData, U_8 * intermediateData, UDATA intermediateDataLength, J9JavaVM *javaVM, UDATA bctFlags, UDATA classFileBytesReplaced, UDATA isIntermediateROMClass, J9TranslationLocalBuffer *localBuffer, UDATA availableOSStackSpace)
+j9bcutil_buildRomClass(J9LoadROMClassData *loadData, U_8 * intermediateData, UDATA intermediateDataLength, J9JavaVM *javaVM, UDATA bctFlags, UDATA classFileBytesReplaced, UDATA isIntermediateROMClass, J9TranslationLocalBuffer *localBuffer)
 {
 	PORT_ACCESS_FROM_JAVAVM(javaVM);
 	UDATA bcuFlags = javaVM->dynamicLoadBuffers->flags;
@@ -195,7 +193,7 @@ j9bcutil_buildRomClass(J9LoadROMClassData *loadData, U_8 * intermediateData, UDA
 	ROMClassCreationContext context(
 			PORTLIB, javaVM, loadData->classData, loadData->classDataLength, bctFlags, bcuFlags, findClassFlags, &romClassSegmentAllocationStrategy,
 			loadData->className, loadData->classNameLength, loadData->hostPackageName, loadData->hostPackageLength, intermediateData, (U_32) intermediateDataLength, loadData->romClass, loadData->classBeingRedefined,
-			loadData->classLoader, (0 != classFileBytesReplaced), (TRUE == isIntermediateROMClass), localBuffer, availableOSStackSpace);
+			loadData->classLoader, (0 != classFileBytesReplaced), (TRUE == isIntermediateROMClass), localBuffer);
 
 	BuildResult result = romClassBuilder->buildROMClass(&context);
 	loadData->romClass = context.romClass();
