@@ -78,7 +78,7 @@ preloadSuperClass(J9VMThread* vmThread, U_8* classData, UDATA classDataLength, J
 			superClassName = J9UTF8_DATA(superClassNameUTF8);
 		}
 	} else {
-		I_32 readResult = j9bcutil_readSuperClassFromClassFileBytes(privatePortLibrary, classData, classDataLength, &superClassNameLength, &buffer, sizeof(buf));
+		I_32 readResult = j9bcutil_readSuperClassFromClassFileBytes(privatePortLibrary, classData, classDataLength, &superClassNameLength, &buffer, sizeof(buf), vmThread->currentOSStackFree);
 		superClassName = buffer;
 
 		if (readResult != 0) {
@@ -827,7 +827,8 @@ callDynamicLoader(J9VMThread *vmThread, J9LoadROMClassData *loadData, U_8 * inte
 				translationFlags,
 				FALSE,
 				TRUE /* isIntermediateROMClass */,
-				localBuffer);
+				localBuffer,
+				vmThread->currentOSStackFree);
 
 			if (BCT_ERR_NO_ERROR == rc) {
 				intermediateData = (U_8 *)intermediateLoadData.romClass;
@@ -853,7 +854,8 @@ callDynamicLoader(J9VMThread *vmThread, J9LoadROMClassData *loadData, U_8 * inte
 			translationFlags,
 			classFileBytesReplacedByRIA | classFileBytesReplacedByRCA,
 			FALSE, /* isIntermediateROMClass */
-			localBuffer);
+			localBuffer,
+			vmThread->currentOSStackFree);
 
 	if (BCT_ERR_NO_ERROR == result) {
 		/* The module of a class transformed by a JVMTI agent needs access to unnamed modules */
@@ -895,7 +897,8 @@ callDynamicLoader(J9VMThread *vmThread, J9LoadROMClassData *loadData, U_8 * inte
 						translationFlags,
 						classFileBytesReplacedByRIA | classFileBytesReplacedByRCA,
 						FALSE, /* isIntermediateROMClass */
-						localBuffer);
+						localBuffer,
+						vmThread->currentOSStackFree);
 
 				j9mem_free_memory(classFileBytes);
 			}
