@@ -110,6 +110,7 @@ public:
     virtual bool jitStaticsAreSame(TR_ResolvedMethod *method1, I_32 cpIndex1, TR_ResolvedMethod *method2,
         I_32 cpIndex2) override;
     virtual TR_OpaqueClassBlock *getComponentClassFromArrayClass(TR_OpaqueClassBlock *arrayClass) override;
+    virtual UDATA getArityFromArrayClass(TR_OpaqueClassBlock *arrayClass) override;
     virtual bool classHasBeenReplaced(TR_OpaqueClassBlock *) override;
     virtual bool classHasBeenExtended(TR_OpaqueClassBlock *) override;
     virtual bool isGetImplInliningSupported() override;

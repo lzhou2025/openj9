@@ -520,6 +520,15 @@ TR_OpaqueClassBlock *TR_J9ServerVM::getComponentClassFromArrayClass(TR_OpaqueCla
     return componentClass;
 }
 
+UDATA TR_J9ServerVM::getArityFromArrayClass(TR_OpaqueClassBlock *arrayClass)
+{
+    UDATA arity = 0;
+    JITServer::ServerStream *stream = _compInfoPT->getMethodBeingCompiled()->_stream;
+    JITServerHelpers::getAndCacheRAMClassInfo((J9Class *)arrayClass, _compInfoPT->getClientData(), stream,
+        JITServerHelpers::CLASSINFO_ARITY, (void *)&arity);
+    return arity;
+}
+
 bool TR_J9ServerVM::classHasBeenReplaced(TR_OpaqueClassBlock *clazz)
 {
     uintptr_t classDepthAndFlags = 0;
