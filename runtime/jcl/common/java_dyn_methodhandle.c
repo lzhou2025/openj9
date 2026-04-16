@@ -556,7 +556,7 @@ lookupField(JNIEnv *env, jboolean isStatic, J9Class *j9LookupClass, jstring name
 		field = (UDATA) field - (UDATA) (*definingClass)->ramStatics;
 		field |= J9_SUN_STATIC_FIELD_OFFSET_TAG;
 	} else {
-		field = (UDATA) vmFuncs->instanceFieldOffset(vmThread, j9LookupClass, J9UTF8_DATA(nameUTF8), J9UTF8_LENGTH(nameUTF8), J9UTF8_DATA(sigUTF), J9UTF8_LENGTH(sigUTF), definingClass, romField, 0);
+		field = vmFuncs->instanceFieldOffset(vmThread, j9LookupClass, J9UTF8_DATA(nameUTF8), J9UTF8_LENGTH(nameUTF8), J9UTF8_DATA(sigUTF), J9UTF8_LENGTH(sigUTF), definingClass, romField, 0);
 		if (-1 == field) {
 			/* IllegalAccessError / IncompatibleClassChangeError / NoSuchFieldError will be pending */
 			Assert_JCL_notNull(vmThread->currentException);
