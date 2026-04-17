@@ -6757,6 +6757,7 @@ typedef struct J9JavaVM {
 	/* Protects constRefArrayPool and J9Class.constRefArrays. */
 	omrthread_monitor_t constRefsMutex;
 #endif /* defined(J9VM_OPT_OPENJDK_METHODHANDLE) */
+	omrthread_monitor_t jitArtifactMonitor;
 } J9JavaVM;
 
 #define J9JFR_SAMPLER_STATE_UNINITIALIZED 0

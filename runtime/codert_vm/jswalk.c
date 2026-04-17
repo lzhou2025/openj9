@@ -172,6 +172,7 @@ UDATA  jitWalkStackFrames(J9StackWalkState *walkState)
 	walkState->dropToCurrentFrame = jitDropToCurrentFrame;
 
 	while ((walkState->jitInfo = jitGetExceptionTable(walkState)) != NULL) {
+jitInfoSecondTryMatch:
 		walkState->stackMap = NULL;
 		walkState->inlineMap = NULL;
 		walkState->bp = walkState->unwindSP + getJitTotalFrameSize(walkState->jitInfo);
@@ -273,6 +274,11 @@ resumeNonInline:
 			if (failedPC == returnTable[i]) {
 				goto i2jTransition;
 			}
+		}
+		/* Before determining its an invalidJITReturnAddress, try loading jitInfo again synchronized */
+		if ((J9_ARE_NO_BITS_SET(walkState->currentThread->privateFlags2, J9_PRIVATE_FLAGS2_ASYNC_GET_CALL_TRACE)) &&
+			((walkState->jitInfo = jitGetExceptionTableFromPCSync(walkState->walkThread, (UDATA)walkState->pc, TRUE)) != NULL)) {
+			goto jitInfoSecondTryMatch;
 		}
 		/* Only report errors if the stack walk caller has allowed it.
 		 * If errors are not being reported, the walk will continue at the last
@@ -1424,6 +1430,11 @@ static J9JITExceptionTable * jitGetExceptionTable(J9StackWalkState * walkState)
 
 	if (result) return result;
 
+	// Try loading jitInfo again with synchronization
+	result = jitGetExceptionTableFromPCSync(walkState->walkThread, (UDATA)walkState->pc, TRUE);
+
+	if (result) return result;
+
 	/* Check to see if the PC is a decompilation return point and if so, use the real PC for finding the metaData */
 
 	if (walkState->decompilationStack) {
@@ -1481,6 +1492,11 @@ typedef struct TR_jit_artifact_search_cache
 
 J9JITExceptionTable * jitGetExceptionTableFromPC(J9VMThread * vmThread, UDATA jitPC)
 {
+	return jitGetExceptionTableFromPCSync(vmThread, jitPC, FALSE);
+}
+
+J9JITExceptionTable * jitGetExceptionTableFromPCSync(J9VMThread * vmThread, UDATA jitPC, BOOLEAN sync)
+{
 	UDATA maskedPC = (UDATA)MASK_PC(jitPC);
 #ifdef J9JIT_ARTIFACT_SEARCH_CACHE_ENABLE
 	TR_jit_artifact_search_cache *artifactSearchCache = vmThread->jitArtifactSearchCache;
@@ -1518,10 +1534,18 @@ J9JITExceptionTable * jitGetExceptionTableFromPC(J9VMThread * vmThread, UDATA ji
 			|| !(((maskedPC >= exceptionTable->startPC) && (maskedPC < exceptionTable->endWarmPC))
 				|| ((0 != exceptionTable->startColdPC) && (maskedPC >= exceptionTable->startColdPC) && (maskedPC < exceptionTable->endPC)))
 			) {
+				if (sync)
+					j9thread_monitor_enter(vmThread->javaVM->jitArtifactMonitor);
 				exceptionTable = jit_artifact_search(vmThread->javaVM->jitConfig->translationArtifacts, maskedPC);
+				if (sync)
+					j9thread_monitor_exit(vmThread->javaVM->jitArtifactMonitor);
 			}
 	 	} else {
+			if (sync)
+				j9thread_monitor_enter(vmThread->javaVM->jitArtifactMonitor);
 			exceptionTable = jit_artifact_search(vmThread->javaVM->jitConfig->translationArtifacts, maskedPC);
+			if (sync)
+				j9thread_monitor_exit(vmThread->javaVM->jitArtifactMonitor);
 			if (NULL != exceptionTable) {
 				cacheEntry->searchValue = maskedPC;
 				cacheEntry->exceptionTable = exceptionTable;
@@ -1531,7 +1555,12 @@ J9JITExceptionTable * jitGetExceptionTableFromPC(J9VMThread * vmThread, UDATA ji
 	}
 noCache:
 #endif /* J9JIT_ARTIFACT_SEARCH_CACHE_ENABLE */
-	return jit_artifact_search(vmThread->javaVM->jitConfig->translationArtifacts, maskedPC);
+	if (sync)
+		j9thread_monitor_enter(vmThread->javaVM->jitArtifactMonitor);
+	J9JITExceptionTable * artifact = jit_artifact_search(vmThread->javaVM->jitConfig->translationArtifacts, maskedPC);
+	if (sync)
+		j9thread_monitor_exit(vmThread->javaVM->jitArtifactMonitor);
+	return artifact;
 }
 
 
