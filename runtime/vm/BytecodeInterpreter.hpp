@@ -8408,7 +8408,9 @@ foundITableCache:
 						_sendMethod = *(J9Method**)((UDATA)receiverClass + ((UDATA*)(iTable + 1))[methodIndex]);
 					}
 					romMethod = J9_ROM_METHOD_FROM_RAM_METHOD(_sendMethod);
-					if (J9_ARE_NO_BITS_SET(romMethod->modifiers, J9AccPublic | J9AccPrivate)) {
+					if (J9_ARE_NO_BITS_SET(romMethod->modifiers, J9AccPublic | J9AccPrivate)
+						|| shouldThrowIllegalAccessForAbstractInvokeInterface(_currentThread, romMethod, receiverClass, &_sendMethod)
+					) {
 						/* We need a frame to describe the method arguments (in particular, for the case where we got here directly from the JIT) */
 						buildMethodFrame(REGISTER_ARGS, _sendMethod, jitStackFrameFlags(REGISTER_ARGS, 0));
 						updateVMStruct(REGISTER_ARGS);
@@ -8416,36 +8418,6 @@ foundITableCache:
 						VMStructHasBeenUpdated(REGISTER_ARGS);
 						rc = GOTO_THROW_CURRENT_EXCEPTION;
 						goto done;
-					}
-					if (J9_ARE_ANY_BITS_SET(romMethod->modifiers, J9AccAbstract)) {
-						/* IllegalAccessError takes priority over AbstractMethodError if:
-						 * - Java 8: the selected method is not public
-						 * - Java 11+: the selected method is neither public nor private
-						 */
-						J9Method *method = (J9Method*)javaLookupMethod(
-							_currentThread,
-							receiverClass,
-							&romMethod->nameAndSignature,
-							NULL,
-							J9_LOOK_VIRTUAL | J9_LOOK_NO_THROW | J9_LOOK_INVOKE_INTERFACE);
-						if (NULL != method) {
-							U_32 modifiers = J9_ROM_METHOD_FROM_RAM_METHOD(method)->modifiers;
-							if (
-#if JAVA_SPEC_VERSION == 8
-								J9_ARE_NO_BITS_SET(modifiers, J9AccPublic)
-#else /* JAVA_SPEC_VERSION == 8 */
-								J9_ARE_NO_BITS_SET(modifiers, J9AccPublic | J9AccPrivate)
-#endif /* JAVA_SPEC_VERSION == 8 */
-							) {
-								/* We need a frame to describe the method arguments (in particular, for the case where we got here directly from the JIT) */
-								buildMethodFrame(REGISTER_ARGS, method, jitStackFrameFlags(REGISTER_ARGS, 0));
-								updateVMStruct(REGISTER_ARGS);
-								setCurrentExceptionUTF(_currentThread, J9VMCONSTANTPOOL_JAVALANGILLEGALACCESSERROR, NULL);
-								VMStructHasBeenUpdated(REGISTER_ARGS);
-								rc = GOTO_THROW_CURRENT_EXCEPTION;
-								goto done;
-							}
-						}
 					}
 					profileInvokeReceiver(REGISTER_ARGS, receiverClass, _literals, _sendMethod);
 					_pc += offset;
@@ -10064,7 +10036,9 @@ foundITable:
 		_sendMethod = *(J9Method **)(((UDATA)receiverClass) + vTableOffset);
 
 		romMethod = J9_ROM_METHOD_FROM_RAM_METHOD(_sendMethod);
-		if (J9_ARE_NO_BITS_SET(romMethod->modifiers, J9AccPublic | J9AccPrivate)) {
+		if (J9_ARE_NO_BITS_SET(romMethod->modifiers, J9AccPublic | J9AccPrivate)
+			|| shouldThrowIllegalAccessForAbstractInvokeInterface(_currentThread, romMethod, receiverClass, &_sendMethod)
+		) {
 			if (fromJIT) {
 				_sp -= 1;
 				buildJITResolveFrame(REGISTER_ARGS);
@@ -10075,39 +10049,6 @@ foundITable:
 			VMStructHasBeenUpdated(REGISTER_ARGS);
 			rc = GOTO_THROW_CURRENT_EXCEPTION;
 			goto done;
-		}
-		if (J9_ARE_ANY_BITS_SET(romMethod->modifiers, J9AccAbstract)) {
-			/* IllegalAccessError takes priority over AbstractMethodError if:
-			 * - Java 8: the selected method is not public
-			 * - Java 11+: the selected method is neither public nor private
-			 */
-			J9Method *method = (J9Method*)javaLookupMethod(
-				_currentThread,
-				receiverClass,
-				&romMethod->nameAndSignature,
-				NULL,
-				J9_LOOK_VIRTUAL | J9_LOOK_NO_THROW | J9_LOOK_INVOKE_INTERFACE);
-			if (NULL != method) {
-				U_32 modifiers = J9_ROM_METHOD_FROM_RAM_METHOD(method)->modifiers;
-				if (
-#if JAVA_SPEC_VERSION == 8
-					J9_ARE_NO_BITS_SET(modifiers, J9AccPublic)
-#else /* JAVA_SPEC_VERSION == 8 */
-					J9_ARE_NO_BITS_SET(modifiers, J9AccPublic | J9AccPrivate)
-#endif /* JAVA_SPEC_VERSION == 8 */
-				) {
-					if (fromJIT) {
-						_sp -= 1;
-						buildJITResolveFrame(REGISTER_ARGS);
-					}
-					updateVMStruct(REGISTER_ARGS);
-					prepareForExceptionThrow(_currentThread);
-					setCurrentExceptionUTF(_currentThread, J9VMCONSTANTPOOL_JAVALANGILLEGALACCESSERROR, NULL);
-					VMStructHasBeenUpdated(REGISTER_ARGS);
-					rc = GOTO_THROW_CURRENT_EXCEPTION;
-					goto done;
-				}
-			}
 		}
 
 		if (fromJIT) {

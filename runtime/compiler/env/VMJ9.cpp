@@ -9035,7 +9035,6 @@ jint JNICALL Java_java_lang_invoke_InterfaceHandle_convertITableIndexToVTableInd
      * InterfaceHandle.vtableOffset() to throw IllegalAccessError. Non-negative returns
      * keep the existing behaviour: dispatch through the vtable slot, where an abstract
      * target lands on the AbstractMethodError-throwing stub.
-     *
      */
     if (J9_ARE_ANY_BITS_SET(romMethod->modifiers, J9AccAbstract)) {
         J9VMThread *vmThread = (J9VMThread *)env;
@@ -9043,9 +9042,8 @@ jint JNICALL Java_java_lang_invoke_InterfaceHandle_convertITableIndexToVTableInd
         bool hadVMAccess = J9_ARE_ANY_BITS_SET(vmThread->publicFlags, J9_PUBLIC_FLAGS_VM_ACCESS);
         if (!hadVMAccess)
             javaVM->internalVMFunctions->internalEnterVMFromJNI(vmThread);
-        BOOLEAN throwIllegalAccess
-            = javaVM->internalVMFunctions->shouldThrowIllegalAccessForAbstractInvokeInterface(
-                vmThread, romMethod, receiverClass);
+        BOOLEAN throwIllegalAccess = javaVM->internalVMFunctions->shouldThrowIllegalAccessForAbstractInvokeInterface(
+            vmThread, romMethod, receiverClass, &method);
         if (!hadVMAccess)
             javaVM->internalVMFunctions->internalExitVMToJNI(vmThread);
         if (throwIllegalAccess)
