@@ -5668,6 +5668,7 @@ typedef struct J9InternalVMFunctions {
 	void (*jfrInitializeInternalStructures)(struct J9VMThread *currentThread);
 	void (*jfrEmitDataLoss)(struct J9VMThread *currentThread, U_64 bytes);
 	jboolean (*requestJFREvent)(struct J9VMThread *currentThread, jlong id);
+	BOOLEAN (*setupChunkMonitor)(struct J9VMThread *currentThread);
 #endif /* defined(J9VM_OPT_JFR) */
 #if defined(J9VM_OPT_SNAPSHOTS)
 	void (*initializeSnapshotClassLoaderObject)(struct J9JavaVM *javaVM, struct J9ClassLoader *classLoader, j9object_t classLoaderObject);
@@ -6201,6 +6202,8 @@ typedef struct JFRState {
 	J9Method *transformToListMethod;
 	J9HashTable *threadObjectJNIRefTable;
 	omrthread_monitor_t threadObjectsMutex;
+	jobject chunkRotationMonitor;
+	jboolean shouldRotateDisk;
 } JFRState;
 
 typedef struct J9ReflectFunctionTable {
