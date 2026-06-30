@@ -1010,7 +1010,6 @@ arbitratedLoadClass(J9VMThread* vmThread, U_8* className, UDATA classNameLength,
 }
 
 #if defined(J9VM_OPT_SNAPSHOTS)
-#if 0
 static BOOLEAN
 loadStaticRefFieldsFromSnapshot(J9VMThread *vmThread, J9Class *ramClazz)
 {
@@ -1045,6 +1044,10 @@ loadStaticRefFieldsFromSnapshot(J9VMThread *vmThread, J9Class *ramClazz)
 						if (!loadWarmClassFromSnapshot(vmThread, fieldClass)) {
 							return FALSE;
 						}
+						if (J9_ARE_ANY_BITS_SET(vmThread->javaVM->extendedRuntimeFlags, J9_EXTENDED_RUNTIME_CLASS_OBJECT_ASSIGNED)) {
+							initializeClass(vmThread, fieldClass);
+							Assert_VM_true(J9ClassInitSucceeded == fieldClass->initializeStatus);
+						}
 					}
 				}
 			}
@@ -1056,7 +1059,7 @@ loadStaticRefFieldsFromSnapshot(J9VMThread *vmThread, J9Class *ramClazz)
 
 	return TRUE;
 }
-#endif
+
 BOOLEAN
 loadWarmClassFromSnapshotInternal(J9VMThread *vmThread, J9Class *clazz)
 {
@@ -1114,6 +1117,7 @@ loadWarmClassFromSnapshotInternal(J9VMThread *vmThread, J9Class *clazz)
 				goto done;
 			}
 		}
+		loadStaticRefFieldsFromSnapshot(vmThread, clazz);
 
 #if JAVA_SPEC_VERSION > 8
 		/* TODO: Handle/trace error/NULL paths. */

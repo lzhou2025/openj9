@@ -632,7 +632,7 @@ VMSnapshotImpl::fixupClasses()
 
 		while (NULL != currentClass) {
 			J9ROMClass *romClass = currentClass->romClass;
-
+#if 0
 			/* Remove dynamic Proxy classes along with unsafe classes. */
 			if (J9ROMCLASS_IS_UNSAFE(romClass)) {
 				J9UTF8 *className = J9ROMCLASS_CLASSNAME(romClass);
@@ -640,6 +640,7 @@ VMSnapshotImpl::fixupClasses()
 				currentClass = allLiveClassesNextDo(&walkState);
 				continue;
 			}
+#endif
 			if (J9ROMCLASS_IS_ARRAY(romClass)) {
 				fixupArrayClass((J9ArrayClass *)currentClass);
 			} else {
@@ -651,6 +652,14 @@ VMSnapshotImpl::fixupClasses()
 			currentClass->lastITable = (J9ITable *)currentClass->iTable;
 			if (NULL == currentClass->lastITable) {
 				currentClass->lastITable = VMSnapshotImpl::getInvalidITable();
+			}
+
+			/* Remove dynamic Proxy classes along with unsafe classes. */
+			if (J9ROMCLASS_IS_UNSAFE(romClass)) {
+				J9UTF8 *className = J9ROMCLASS_CLASSNAME(romClass);
+				hashClassTableDelete(classloader, J9UTF8_DATA(className), J9UTF8_LENGTH(className));
+				currentClass = allLiveClassesNextDo(&walkState);
+				continue;
 			}
 
 			currentClass = allLiveClassesNextDo(&walkState);
@@ -845,13 +854,8 @@ VMSnapshotImpl::fixupConstantPool(J9Class *ramClass)
 			case J9CPTYPE_FIELD:
 				if ((IDATA) ((J9RAMFieldRef *) ramConstantPool)[i].valueOffset < -1
 					&& (0 != ((J9RAMFieldRef *) ramConstantPool)[i].flags)
+					&& ramClass->classLoader == _vm->systemClassLoader
 				) {
-					J9RAMStaticFieldRef *ramStaticFieldRef = (J9RAMStaticFieldRef *) &ramConstantPool[i];
-					IDATA classAndFlags = J9CLASSANDFLAGS_FROM_FLAGSANDCLASS(ramStaticFieldRef->flagsAndClass);
-					J9Class *fieldClass = (J9Class*)(classAndFlags & ~(UDATA)J9StaticFieldRefFlagBits);
-					if (fieldClass != ramClass) {
-						ramClass->classFlags |= J9ClassInitClassInWarmLoad;
-					}
 					((J9RAMFieldRef *) ramConstantPool)[i].valueOffset = -1;
 				}
 				break;
