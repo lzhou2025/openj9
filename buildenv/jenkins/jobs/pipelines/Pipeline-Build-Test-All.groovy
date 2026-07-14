@@ -263,6 +263,9 @@ OPENJDK_REPO = [:]
 OPENJDK_BRANCH = [:]
 OPENJDK_SHA = [:]
 
+EBC_SUPPORTED_SPECS = ['x86-32_windows', 'x86-64_windows', 'x86-64_linux']
+EBC_SUPPORTED_VERSIONS = ['8', '11', '27']
+
 BUILD_SPECS = [:]
 builds = [:]
 pipelineNames = []
@@ -352,6 +355,17 @@ try {
                                 def OPENJDK_CLONE_DIR = get_value_by_spec(OPENJDK_CLONE_DIR_MAP, SDK_VERSION, SPEC)
 
                                 builds["${job_name}"] = {
+                                    def ebcNodeUuid = null
+                                    if (BUILD_NODE == 'EBC') {
+                                        if (!EBC_SUPPORTED_SPECS.contains(SPEC)) {
+                                            error("EBC is not supported for spec '${SPEC}'. Supported EBC specs: ${EBC_SUPPORTED_SPECS}")
+                                        }
+                                        if (!EBC_SUPPORTED_VERSIONS.contains(SDK_VERSION)) {
+                                            error("EBC is not supported for JDK ${SDK_VERSION}. Supported EBC versions: ${EBC_SUPPORTED_VERSIONS}")
+                                        }
+                                        ebcNodeUuid = call_ebc_demand(SPEC)
+                                        BUILD_NODE = ebcNodeUuid
+                                    }
                                     if (AUTOMATIC_GENERATION != 'false') {
                                         node(SETUP_LABEL) {
                                             unstash 'DSL'
@@ -359,7 +373,13 @@ try {
                                         }
                                     }
                                     pipelinesStatus[job_name] = 'RUNNING'
-                                    build(job_name, REPO, BRANCH, SHAS, OPENJ9_REPO, OPENJ9_BRANCH, OMR_REPO, OMR_BRANCH, VENDOR_CODE_REPO, VENDOR_CODE_BRANCH, SPEC, SDK_VERSION, BUILD_NODE, TEST_NODE, EXTRA_GETSOURCE_OPTIONS, EXTRA_CONFIGURE_OPTIONS, EXTRA_MAKE_OPTIONS, OPENJDK_CLONE_DIR, ADOPTOPENJDK_REPO, ADOPTOPENJDK_BRANCH, AUTOMATIC_GENERATION, CUSTOM_DESCRIPTION, ARCHIVE_JAVADOC, CODE_COVERAGE, USE_TESTENV_PROPERTIES)
+                                    try {
+                                        build(job_name, REPO, BRANCH, SHAS, OPENJ9_REPO, OPENJ9_BRANCH, OMR_REPO, OMR_BRANCH, VENDOR_CODE_REPO, VENDOR_CODE_BRANCH, SPEC, SDK_VERSION, BUILD_NODE, TEST_NODE, EXTRA_GETSOURCE_OPTIONS, EXTRA_CONFIGURE_OPTIONS, EXTRA_MAKE_OPTIONS, OPENJDK_CLONE_DIR, ADOPTOPENJDK_REPO, ADOPTOPENJDK_BRANCH, AUTOMATIC_GENERATION, CUSTOM_DESCRIPTION, ARCHIVE_JAVADOC, CODE_COVERAGE, USE_TESTENV_PROPERTIES)
+                                    } finally {
+                                        if (ebcNodeUuid) {
+                                            call_ebc_complete(ebcNodeUuid)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -421,6 +441,26 @@ try {
     }
 } finally {
     draw_summary_table()
+}
+
+def call_ebc_demand(SPEC) {
+    def nodeUuid = "EBC_dev_ID_" + UUID.randomUUID().toString()
+    def groupLabel = SPEC.contains('linux') ? 'EBC_Linux' : 'EBC_Windows'
+    def shortlistName = SPEC.contains('linux') ? 'runtimesjenkins-random-build-docker-x86-64_linux_medium.yml' : 'runtimesJenkins-semeru-build-windows-x86-64-windows2025-large.yml'
+    build job: 'EBC/EBC_Demand',
+        parameters: [
+            string(name: 'GROUP_LABEL',       value: groupLabel),
+            string(name: 'NODE_UUID',          value: nodeUuid),
+            string(name: 'TIME_LIMIT',         value: '5'),
+            string(name: 'EBC_SHORTLIST_NAME', value: shortlistName),
+            string(name: 'EBC_ENV',            value: 'dev')]
+    return nodeUuid
+}
+
+def call_ebc_complete(NODE_UUID) {
+    build job: 'EBC/EBC_Complete',
+        parameters: [
+            string(name: 'EBC_DEMAND_ID', value: NODE_UUID)]
 }
 
 def build(JOB_NAME, OPENJDK_REPO, OPENJDK_BRANCH, SHAS, OPENJ9_REPO, OPENJ9_BRANCH, OMR_REPO, OMR_BRANCH, VENDOR_CODE_REPO, VENDOR_CODE_BRANCH, SPEC, SDK_VERSION, BUILD_NODE, TEST_NODE, EXTRA_GETSOURCE_OPTIONS, EXTRA_CONFIGURE_OPTIONS, EXTRA_MAKE_OPTIONS, OPENJDK_CLONE_DIR, ADOPTOPENJDK_REPO, ADOPTOPENJDK_BRANCH, AUTOMATIC_GENERATION, CUSTOM_DESCRIPTION, ARCHIVE_JAVADOC, CODE_COVERAGE, USE_TESTENV_PROPERTIES) {
