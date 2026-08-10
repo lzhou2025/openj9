@@ -735,8 +735,8 @@ def upload_artifactory(uploadSpec) {
 def upload_artifactory_core(geo, uploadSpec) {
     echo "Uploading to '${geo}'..."
     def server = Artifactory.server ARTIFACTORY_CONFIG[geo]['server']
-    // set connection timeout to 10 mins to avoid timeout on slow platforms
-    server.connection.timeout = 600
+    // set connection timeout to 20 mins to avoid timeout on slow platforms
+    server.connection.timeout = 1200
 
     def buildInfo = Artifactory.newBuildInfo()
     buildInfo.retention maxBuilds: ARTIFACTORY_CONFIG[geo]['numArtifacts'], maxDays: ARTIFACTORY_CONFIG[geo]['daysToKeepArtifacts'], deleteBuildArtifacts: true
