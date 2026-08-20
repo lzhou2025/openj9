@@ -264,7 +264,6 @@ OPENJDK_BRANCH = [:]
 OPENJDK_SHA = [:]
 
 EBC_SUPPORTED_SPECS = ['x86-32_windows', 'x86-64_windows', 'x86-64_linux']
-EBC_SUPPORTED_VERSIONS = ['8', '11', '27']
 
 BUILD_SPECS = [:]
 builds = [:]
@@ -356,25 +355,23 @@ try {
 
                                 builds["${job_name}"] = {
                                     def ebcNodeUuid = null
-                                    if (BUILD_NODE == 'EBC') {
-                                        if (!EBC_SUPPORTED_SPECS.contains(SPEC)) {
-                                            error("EBC is not supported for spec '${SPEC}'. Supported EBC specs: ${EBC_SUPPORTED_SPECS}")
-                                        }
-                                        if (!EBC_SUPPORTED_VERSIONS.contains(SDK_VERSION)) {
-                                            error("EBC is not supported for JDK ${SDK_VERSION}. Supported EBC versions: ${EBC_SUPPORTED_VERSIONS}")
-                                        }
-                                        ebcNodeUuid = call_ebc_demand(SPEC)
-                                        BUILD_NODE = ebcNodeUuid
-                                    }
-                                    if (AUTOMATIC_GENERATION != 'false') {
-                                        node(SETUP_LABEL) {
-                                            unstash 'DSL'
-                                            variableFile.create_job(job_name, SDK_VERSION, SPEC, 'pipeline', 'Pipeline')
-                                        }
-                                    }
-                                    pipelinesStatus[job_name] = 'RUNNING'
+                                    def localBuildNode = BUILD_NODE
                                     try {
-                                        build(job_name, REPO, BRANCH, SHAS, OPENJ9_REPO, OPENJ9_BRANCH, OMR_REPO, OMR_BRANCH, VENDOR_CODE_REPO, VENDOR_CODE_BRANCH, SPEC, SDK_VERSION, BUILD_NODE, TEST_NODE, EXTRA_GETSOURCE_OPTIONS, EXTRA_CONFIGURE_OPTIONS, EXTRA_MAKE_OPTIONS, OPENJDK_CLONE_DIR, ADOPTOPENJDK_REPO, ADOPTOPENJDK_BRANCH, AUTOMATIC_GENERATION, CUSTOM_DESCRIPTION, ARCHIVE_JAVADOC, CODE_COVERAGE, USE_TESTENV_PROPERTIES)
+                                        if (localBuildNode == 'EBC') {
+                                            if (!EBC_SUPPORTED_SPECS.contains(SPEC)) {
+                                                error("EBC is not supported for spec '${SPEC}'. Supported EBC specs: ${EBC_SUPPORTED_SPECS}")
+                                            }
+                                            ebcNodeUuid = call_ebc_demand(SPEC)
+                                            localBuildNode = ebcNodeUuid
+                                        }
+                                        if (AUTOMATIC_GENERATION != 'false') {
+                                            node(SETUP_LABEL) {
+                                                unstash 'DSL'
+                                                variableFile.create_job(job_name, SDK_VERSION, SPEC, 'pipeline', 'Pipeline')
+                                            }
+                                        }
+                                        pipelinesStatus[job_name] = 'RUNNING'
+                                        build(job_name, REPO, BRANCH, SHAS, OPENJ9_REPO, OPENJ9_BRANCH, OMR_REPO, OMR_BRANCH, VENDOR_CODE_REPO, VENDOR_CODE_BRANCH, SPEC, SDK_VERSION, localBuildNode, TEST_NODE, EXTRA_GETSOURCE_OPTIONS, EXTRA_CONFIGURE_OPTIONS, EXTRA_MAKE_OPTIONS, OPENJDK_CLONE_DIR, ADOPTOPENJDK_REPO, ADOPTOPENJDK_BRANCH, AUTOMATIC_GENERATION, CUSTOM_DESCRIPTION, ARCHIVE_JAVADOC, CODE_COVERAGE, USE_TESTENV_PROPERTIES)
                                     } finally {
                                         if (ebcNodeUuid) {
                                             call_ebc_complete(ebcNodeUuid)
